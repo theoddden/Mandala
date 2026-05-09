@@ -54,42 +54,6 @@ Mandala is an **event-sourced integration bridge** with a short-lived Redis proj
 2. **Process** — single worker reads stream → projects into `StateStore` → runs detectors → publishes alerts back to stream
 3. **Query** — MCP server reads from `StateStore` (read-only, no writes)
 
-### The Delta vs In-House
-
-| Dimension | In-House | Mandala |
-|---|---|---|
-| Schema | Ad-hoc, vendor-specific | Canonical, versioned, public |
-| Code quality | Varies, rarely tested | Clean, typed, documented |
-| Maintenance | $300K-1M/year team | Free + optional hosted support |
-| Time to first value | 6-18 months | 2 hours (docker compose up) |
-| Extensibility | Hard (vendor lock-in) | Easy (add connector in 1 day) |
-| Data engineering | Custom ETL | dbt-mandala package (plug-and-play) |
-
-### The Delta vs Project44/FourKites
-
-| Dimension | Project44/FourKites | Mandala |
-|---|---|---|
-| Customer | Shippers (Fortune 1000) | Carriers + forwarders (mid-market) |
-| Pricing | $50-500K/year | Free OSS + optional hosted $1-30K/year |
-| Deployment | SaaS only | Self-hosted or SaaS |
-| Data direction | Many carriers → one shipper | Many systems → one operator |
-| Schema | Proprietary | Public (CloudEvents 1.0 + URN) |
-| Alerts | None | Cross-border, cold-chain, load-board |
-| Load boards | None | DAT + Truckstop auto-posting |
-| AI integration | None | MCP server (5 tools) |
-| Warehouse | Proprietary | dbt-mandala (open) |
-
-### ROI for Mid-Market Fleets
-
-For a 100-truck fleet doing 20 cross-border shipments/day:
-- **Without Mandala**: 2-3 missed customs filings/year = $50-100K in delays + fines
-- **Without Mandala**: 5-10 min/load-board posting × 50 loads/day = $200K/year in dispatcher time
-- **Without Mandala**: Cold-chain breaches caught 2-4 hours late = $20-50K/year in spoiled cargo
-
-**With Mandala**: $0 software + $3K/year hosted = $3K/year to avoid $270-350K/year in operational costs.
-
-**90x ROI on the operational problem, with zero vendor lock-in.**
-
 ## v0.1 scope
 
 Fully functional out of the box with **no commercial agreements**:
