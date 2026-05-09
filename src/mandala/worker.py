@@ -18,11 +18,12 @@ import structlog
 from mandala.alerts import DETECTORS as ALERT_DETECTORS
 from mandala.core.bus import RedisStreamsBus
 from mandala.core.state import StateStore
+from mandala.fmcsa import DETECTORS as FMCSA_DETECTORS
 from mandala.loadboard import DETECTORS as LOADBOARD_DETECTORS
 from mandala.projection import project
 from mandala.settings import get_settings
 
-DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS
+DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS
 
 log = structlog.get_logger(__name__)
 

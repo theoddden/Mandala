@@ -99,6 +99,11 @@ Fully functional out of the box with **no commercial agreements**:
 - **WiseTech CargoWise connector** — eAdaptor inbound webhook (Universal
   Event XML) + outbound client to push status updates back into
   CargoWise. Sits alongside Descartes; either or both can be enabled.
+- **FMCSA SAFER enrichment** — free, public API that enriches carrier
+  events with live CSA scores, inspection history, violation records,
+  out-of-service rate, and operating authority status. No credentials
+  required. Decorates carrier events with FMCSA data when DOT number is
+  present.
 - **Cross-border alert engine** — fires when a truck enters a POE
   geofence with no matching customs filing.
 - **Cold-chain alerts** — temperature against the declared shipment
@@ -110,7 +115,7 @@ Fully functional out of the box with **no commercial agreements**:
   (`MANDALA_LOADBOARD_ENABLED=0`); requires partner credentials per board.
 - **MCP server** — five read-only tools (`get_shipment`, `get_truck`,
   `check_customs_status`, `get_recent_alerts`, `get_fleet_near_border`).
-- **dbt-mandala package** — staging + intermediate + 5 marts.
+- **dbt-mandala package** — staging + intermediate + 6 marts.
 - **Single Redis dependency.** No Postgres, no Kafka, no K8s.
 
 Datamyne and Visual Compliance scaffolds exist but are stubs until
@@ -175,6 +180,7 @@ Marts:
 |---|---|---|
 | `mandala_shipments` | shipment | the single pane of glass |
 | `mandala_trucks_current` | truck | latest known truck state |
+| `mandala_carrier_safety_profile` | DOT number | live CSA scores, inspection history, FMCSA authority |
 | `mandala_border_crossings` | crossing event | retroactive customs audits |
 | `mandala_cold_chain_compliance` | breach window | regulatory liability surface |
 | `mandala_carbon_per_trip` | journey | CSRD / CBAM-friendly emissions |

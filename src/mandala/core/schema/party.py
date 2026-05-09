@@ -45,3 +45,7 @@ class Party(BaseModel):
         default_factory=list,
         description="Compliance flags applied by Descartes Compliance / OFAC screening.",
     )
+    # FMCSA enrichment (carrier-only, optional)
+    dot_number: str | None = None
+    fmcsa_safety_rating: str | None = None
+    fmcsa_csa_score_max: float | None = None

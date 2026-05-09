@@ -65,6 +65,9 @@ class EventType(StrEnum):
     LOADBOARD_POST_FAILED = "mandala.loadboard.post_failed"
     LOADBOARD_EXPIRED = "mandala.loadboard.expired"
 
+    # --- Carrier enrichment (FMCSA SAFER) ----------------------------------
+    CARRIER_FMCSA_ENRICHED = "mandala.carrier.fmcsa.enriched"
+
     # --- Internal / system ------------------------------------------------
     PLAYBOOK_TRIGGERED = "mandala.playbook.triggered"
     PLAYBOOK_ACTION_OK = "mandala.playbook.action.ok"
