@@ -22,9 +22,11 @@ Optional extensions used by Mandala:
 * ``traceparent`` / ``tracestate`` — W3C Trace Context propagation.
 * ``mandalaschemaversion`` — version of the canonical schema (e.g. ``"0.1"``).
 * ``mandalaingestid`` — id of the raw inbound webhook (idempotency).
+* ``mandalaidempotencykey`` — SHA256-derived idempotency key for exactly-once delivery.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime
@@ -34,7 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from mandala.core.events.types import EventType
 
-SCHEMA_VERSION = "0.2"
+SCHEMA_VERSION = "0.3"
 SPEC_VERSION = "1.0"
 
 
@@ -56,6 +58,7 @@ class MandalaEvent(BaseModel):
     # --- Mandala extensions -----------------------------------------------
     mandalaschemaversion: str = SCHEMA_VERSION
     mandalaingestid: str | None = None
+    mandalaidempotencykey: str | None = Field(default=None, description="SHA256-derived idempotency key for exactly-once delivery")
     traceparent: str | None = None
     tracestate: str | None = None
     # --- Three-timestamp accounting ----------------------------------------
@@ -81,6 +84,25 @@ class MandalaEvent(BaseModel):
     @classmethod
     def from_json(cls, raw: str | bytes) -> Self:
         return cls.model_validate(json.loads(raw))
+
+    def compute_idempotency_key(self) -> str:
+        """Compute deterministic idempotency key from source payload.
+        
+        Key is SHA256(vendor + event_type + occurred_at + entity_id).
+        This ensures exactly-once delivery by detecting duplicate events
+        from webhook retries or network hiccups.
+        """
+        # Extract vendor from source (e.g., "mandala/connector/samsara" -> "samsara")
+        vendor = self.source.split("/")[-1] if "/" in self.source else self.source
+        
+        # Extract entity_id from subject if available
+        entity_id = self.subject if self.subject else ""
+        
+        # Build key components
+        key_components = f"{vendor}:{self.type}:{self.time.isoformat()}:{entity_id}"
+        
+        # Compute SHA256 hash
+        return hashlib.sha256(key_components.encode()).hexdigest()
 
 
 def new_event(

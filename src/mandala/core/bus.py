@@ -3,6 +3,12 @@
 The default implementation uses Redis Streams with consumer groups for
 exactly-once-ish processing (combined with the idempotency layer).
 Production users can swap to Kafka/NATS by providing another :class:`EventBus`.
+
+Exactly-once delivery is achieved via idempotency keys derived from
+SHA256(vendor + event_type + occurred_at + entity_id). Before publishing
+to the stream, the key is checked against a Redis SET with 14-day TTL.
+If the key exists, the event is dropped (duplicate). This atomic check-and-publish
+is performed via a Lua script to prevent race conditions.
 """
 from __future__ import annotations
 
@@ -15,12 +21,30 @@ from mandala.core.events.envelope import MandalaEvent
 
 log = structlog.get_logger(__name__)
 
+# Lua script for atomic deduplication check-and-publish
+# Returns 0 if key exists (duplicate), 1 if key was added (new event)
+DEDUPE_SCRIPT = """
+local key = KEYS[1]
+local ttl = ARGV[1]
+if redis.call('EXISTS', key) == 1 then
+    return 0
+end
+redis.call('SETEX', key, ttl, '1')
+return 1
+"""
+
 
 class EventBus(Protocol):
     """Pub/sub interface used everywhere inside Mandala."""
 
-    async def publish(self, stream: str, event: MandalaEvent) -> str:
-        """Append ``event`` to ``stream`` and return the assigned message id."""
+    async def publish(self, stream: str, event: MandalaEvent, *, enable_deduplication: bool = True) -> str:
+        """Append ``event`` to ``stream`` and return the assigned message id.
+        
+        Args:
+            stream: Redis stream name
+            event: MandalaEvent to publish
+            enable_deduplication: If True, check idempotency key before publishing
+        """
         ...
 
     async def subscribe(
@@ -42,13 +66,74 @@ class EventBus(Protocol):
 class RedisStreamsBus:
     """Production :class:`EventBus` backed by Redis Streams + consumer groups."""
 
+    # 14-day TTL for idempotency keys (matches StateStore TTL)
+    IDEMPOTENCY_TTL_SEC = 14 * 24 * 60 * 60  # 14 days in seconds
+
     def __init__(self, redis: "object") -> None:
         self._redis = redis
+        self._dedupe_script_registered = False
 
-    async def publish(self, stream: str, event: MandalaEvent) -> str:
+    async def _ensure_dedupe_script(self) -> None:
+        """Register the deduplication Lua script if not already registered."""
+        if self._dedupe_script_registered:
+            return
+        
+        try:
+            await self._redis.script_load(DEDUPE_SCRIPT)  # type: ignore[attr-defined]
+            self._dedupe_script_registered = True
+            log.info("deduplication script registered")
+        except Exception as exc:  # noqa: BLE001
+            log.exception("failed to register deduplication script", error=str(exc))
+            raise
+
+    async def publish(self, stream: str, event: MandalaEvent, *, enable_deduplication: bool = True) -> str:
+        """Append ``event`` to ``stream`` and return the assigned message id.
+        
+        If enable_deduplication is True, checks idempotency key before publishing
+        to prevent duplicate events from webhook retries or network hiccups.
+        """
+        # Compute idempotency key if not already set
+        if not event.mandalaidempotencykey:
+            event.mandalaidempotencykey = event.compute_idempotency_key()
+        
+        # Check deduplication if enabled
+        if enable_deduplication:
+            await self._ensure_dedupe_script()
+            
+            dedupe_key = f"mandala:idempotency:{event.mandalaidempotencykey}"
+            
+            # Execute deduplication script atomically
+            result = await self._redis.eval(
+                DEDUPE_SCRIPT,
+                1,  # number of keys
+                dedupe_key,
+                self.IDEMPOTENCY_TTL_SEC,  # TTL argument
+            )  # type: ignore[attr-defined]
+            
+            # If result is 0, key already exists (duplicate event)
+            if result == 0:
+                log.info(
+                    "duplicate event detected, dropping",
+                    idempotency_key=event.mandalaidempotencykey,
+                    event_type=event.type,
+                    stream=stream,
+                )
+                # Return empty string to indicate event was dropped
+                return ""
+        
+        # Publish to stream
         msg_id: str = await self._redis.xadd(  # type: ignore[attr-defined]
             stream, {"e": event.to_json()}, maxlen=100_000, approximate=True
         )
+        
+        log.debug(
+            "event published to stream",
+            stream=stream,
+            msg_id=msg_id,
+            event_type=event.type,
+            idempotency_key=event.mandalaidempotencykey,
+        )
+        
         return msg_id
 
     async def _ensure_group(self, stream: str, group: str) -> None:

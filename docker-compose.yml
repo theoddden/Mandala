@@ -31,5 +31,35 @@ services:
     depends_on:
       redis: { condition: service_healthy }
 
+  palantir-connector:
+    build: .
+    command: ["python", "palantir/stub_connector.py"]
+    environment:
+      MANDALA_REDIS_URL: redis://redis:6379/0
+      MANDALA_PALANTIR_ENABLED: ${MANDALA_PALANTIR_ENABLED:-0}
+      MANDALA_PALANTIR_API_URL: ${MANDALA_PALANTIR_API_URL:-}
+      MANDALA_PALANTIR_TOKEN: ${MANDALA_PALANTIR_TOKEN:-}
+      MANDALA_PALANTIR_BATCH_SIZE: ${MANDALA_PALANTIR_BATCH_SIZE:-100}
+      MANDALA_PALANTIR_FLUSH_INTERVAL_SEC: ${MANDALA_PALANTIR_FLUSH_INTERVAL_SEC:-30}
+    depends_on:
+      redis: { condition: service_healthy }
+    profiles:
+      - palantir
+
+  kinaxis-connector:
+    build: .
+    command: ["python", "kinaxis/connector.py"]
+    environment:
+      MANDALA_REDIS_URL: redis://redis:6379/0
+      MANDALA_KINAXIS_ENABLED: ${MANDALA_KINAXIS_ENABLED:-0}
+      MANDALA_KINAXIS_API_URL: ${MANDALA_KINAXIS_API_URL:-}
+      MANDALA_KINAXIS_API_KEY: ${MANDALA_KINAXIS_API_KEY:-}
+      MANDALA_KINAXIS_BATCH_SIZE: ${MANDALA_KINAXIS_BATCH_SIZE:-50}
+      MANDALA_KINAXIS_FLUSH_INTERVAL_SEC: ${MANDALA_KINAXIS_FLUSH_INTERVAL_SEC:-30}
+    depends_on:
+      redis: { condition: service_healthy }
+    profiles:
+      - kinaxis
+
 volumes:
   redis-data:
