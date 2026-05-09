@@ -387,6 +387,23 @@ docker compose down -v
 docker compose logs
 ```
 
+## FAQ
+
+**How does the idempotency key actually work when the same physical event comes from two different connectors?**
+
+The idempotency key is derived from `SHA256(vendor + event_type + occurred_at + entity_id)`. This handles single-vendor deduplication cleanly (e.g., Samsara sends the same geofence event twice due to retry).
+
+For cross-vendor events (e.g., Samsara and MacroPoint both emit an event about the same truck crossing the same geofence), **both events will be processed**. The deduplication window is 14 days (matching the state store TTL). Cross-vendor deduplication would require a canonical entity ID mapping layer, which is not currently implemented.
+
+**Why not cross-vendor deduplication?**
+
+Cross-vendor deduplication is complex because:
+- Different vendors use different entity ID formats (Samsara vehicle ID vs MacroPoint shipment ID)
+- Timestamps may have different precision or timezone handling
+- Event type semantics differ between vendors
+
+If you need cross-vendor deduplication, implement it in your detector logic by querying the state store for recent events from other vendors with matching semantic criteria.
+
 ## Troubleshooting
 
 **Webhook not receiving events**
