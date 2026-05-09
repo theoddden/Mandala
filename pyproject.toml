@@ -3,7 +3,7 @@ requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mandala-bridge"
+name = "mandala"
 version = "0.1.0"
 description = "Open-source event bridge between Samsara fleet telemetry and Descartes GLN customs/trade platforms."
 readme = "README.md"
@@ -48,9 +48,9 @@ dev = [
 mandala = "mandala.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/mandala-bridge/mandala"
-Documentation = "https://github.com/mandala-bridge/mandala/tree/main/docs"
-Issues = "https://github.com/mandala-bridge/mandala/issues"
+Homepage = "https://github.com/theoddden/Mandala"
+Documentation = "https://github.com/theoddden/Mandala"
+Issues = "https://github.com/theoddden/Mandala/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mandala"]

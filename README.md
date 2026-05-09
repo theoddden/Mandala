@@ -120,15 +120,15 @@ must be useful with **only** Samsara configured.
 ## Install
 
 ```bash
-pip install mandala-bridge       # core
-pip install 'mandala-bridge[mcp]' # +MCP server
+pip install mandala       # core
+pip install 'mandala[mcp]' # +MCP server
 ```
 
 ## Quickstart (under an hour)
 
 ```bash
-git clone https://github.com/mandala-bridge/mandala
-cd mandala
+git clone https://github.com/theoddden/Mandala
+cd Mandala
 cp .env.example .env             # set MANDALA_SAMSARA_WEBHOOK_SECRET, etc.
 docker compose up -d             # redis + api + worker
 ```
@@ -161,7 +161,7 @@ table named `raw_mandala_events`. Then in your dbt project:
 ```yaml
 # packages.yml
 packages:
-  - package: mandala-bridge/mandala
+  - package: theoddden/Mandala
     version: [">=0.1.0", "<0.2.0"]
 ```
 
