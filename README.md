@@ -100,24 +100,277 @@ pip install 'mandala[mcp]' # +MCP server
 
 ## Quickstart (under an hour)
 
+### Prerequisites
+
+- **Docker & Docker Compose** — for running Redis, API, and worker
+- **Samsara account** — for fleet telemetry webhooks (free tier works)
+- **Python 3.11+** — if running outside Docker (optional)
+- **Redis CLI** — for verifying events (optional, `brew install redis` on macOS)
+
+### Step 1: Clone and Configure
+
 ```bash
 git clone https://github.com/theoddden/Mandala
 cd Mandala
-cp .env.example .env             # set MANDALA_SAMSARA_WEBHOOK_SECRET, etc.
-docker compose up -d             # redis + api + worker
+cp .env.example .env
 ```
 
-Point your Samsara webhook at `http://YOUR_HOST:8000/webhooks/samsara`.
-You'll see normalized `MandalaEvent` JSON on the `mandala:events` Redis
-stream within seconds.
-
-To talk to Mandala from an LLM:
+Edit `.env` with your credentials:
 
 ```bash
-mandala mcp                       # stdio MCP server
+# Required for Samsara webhook
+MANDALA_SAMSARA_WEBHOOK_SECRET=your-secret-here
+
+# Optional: Samsara API for outbound calls (alerts, route updates)
+MANDALA_SAMSARA_API_TOKEN=
+MANDALA_SAMSARA_BASE_URL=https://api.samsara.com
+
+# Optional: Descartes MacroPoint (trade/customs)
+MANDALA_DESCARTES_WEBHOOK_SECRET=
+MANDALA_DESCARTES_API_KEY=
+MANDALA_DESCARTES_BASE_URL=https://gln.descartes.com
+
+# Optional: FMCSA SAFER (carrier enrichment — no credentials required)
+# Just enable the connector in your workflow
+
+# Optional: Vizion API (rail intermodal — single API key, free trial)
+MANDALA_VIZION_API_KEY=
 ```
 
-Add it to your Claude Desktop or Continue config under `mcpServers`.
+**Important**: Set `MANDALA_SAMSARA_WEBHOOK_SECRET` to a random string. This is the HMAC secret Samsara uses to sign webhooks. You'll configure the same value in Samsara's webhook UI.
+
+### Step 2: Start Mandala
+
+```bash
+docker compose up -d
+```
+
+This starts three services:
+- **redis** — Redis 7-alpine (event stream + state store)
+- **api** — FastAPI webhook ingest (port 8000)
+- **worker** — Event processor (projection + alerts)
+
+Verify services are running:
+
+```bash
+docker compose ps
+# Should show all three services as "healthy"
+```
+
+Check logs:
+
+```bash
+docker compose logs -f api
+docker compose logs -f worker
+```
+
+### Step 3: Configure Samsara Webhook
+
+1. Log into Samsara Admin Console
+2. Navigate to **Settings → Webhooks**
+3. Click **Add Webhook**
+4. Configure:
+   - **URL**: `http://YOUR_HOST:8000/webhooks/samsara`
+   - **Events**: Select at least `Vehicle Location`, `Geofence Entry`, `Geofence Exit`
+   - **Secret**: Use the same value as `MANDALA_SAMSARA_WEBHOOK_SECRET` in your `.env`
+5. Click **Save**
+
+**Note**: Replace `YOUR_HOST` with your actual hostname or IP. For local testing, use `http://localhost:8000/webhooks/samsara` if Samsara can reach your machine (requires ngrok or similar for external access).
+
+### Step 4: Trigger a Test Event
+
+The easiest way to test is to trigger a geofence event in Samsara:
+
+1. Create a simple geofence around your facility in Samsara
+2. Drive a truck through the geofence (or simulate via Samsara's test webhook feature)
+3. Watch Mandala logs:
+
+```bash
+docker compose logs -f worker
+```
+
+You should see log messages like:
+```
+INFO mandala.worker - received event, type=mandala.truck.geofence.entered, truck_id=12345
+INFO mandala.worker - projected into state store
+```
+
+### Step 5: Verify Events in Redis Stream
+
+Use Redis CLI to inspect the stream:
+
+```bash
+# Connect to Redis container
+docker compose exec redis redis-cli
+
+# Read from the event stream
+XREAD STREAMS mandala:events 0
+
+# Or read the last 10 events
+XREVRANGE mandala:events + - COUNT 10
+```
+
+You'll see JSON events in CloudEvents 1.0 format:
+
+```json
+{
+  "id": "uuid-v7",
+  "source": "mandala/connector/samsara",
+  "type": "mandala.truck.geofence.entered",
+  "time": "2026-05-09T17:30:00Z",
+  "subject": "urn:mandala:truck:samsara:12345",
+  "data": {
+    "truck_id": "12345",
+    "geofence_id": "geo-1",
+    "geofence_name": "Facility",
+    "occurred_at": "2026-05-09T17:29:45Z"
+  }
+}
+```
+
+### Step 6: Check State Store
+
+Mandala projects events into a Redis-backed state store with 14-day TTL:
+
+```bash
+# Get current state for a truck
+docker compose exec redis redis-cli HGETALL "mandala:state:truck:12345"
+
+# List all trucks in state
+docker compose exec redis redis-cli KEYS "mandala:state:truck:*"
+```
+
+### Step 7: Test MCP Server (Optional)
+
+If you want to query Mandala from an LLM:
+
+```bash
+# Install Mandala with MCP support
+pip install 'mandala[mcp]'
+
+# Start MCP server
+mandala mcp
+```
+
+Add to your Claude Desktop config (`~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "mandala": {
+      "command": "mandala",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Available tools:
+- `get_shipment` — Query shipment by ID
+- `get_truck` — Query truck by ID
+- `check_customs_status` — Check customs filing status
+- `get_recent_alerts` — Get recent alerts
+- `get_fleet_near_border` — Get trucks near POE geofences
+
+### Step 8: Enable Additional Connectors (Optional)
+
+**FMCSA SAFER** (carrier enrichment, no credentials):
+
+```bash
+# Add to your workflow to enrich carrier events with CSA scores
+# No configuration needed — uses public FMCSA API
+```
+
+**Vizion API** (rail intermodal):
+
+```bash
+# Add to .env
+MANDALA_VIZION_API_KEY=your-vizion-key
+
+# Free trial: https://www.vizionapi.com
+```
+
+**Load-board auto-posting** (DAT + Truckstop):
+
+```bash
+# Add to .env
+MANDALA_LOADBOARD_ENABLED=1
+MANDALA_DAT_CLIENT_ID=
+MANDALA_DAT_CLIENT_SECRET=
+MANDALA_TRUCKSTOP_INTEGRATION_ID=
+MANDALA_TRUCKSTOP_USERNAME=
+MANDALA_TRUCKSTOP_PASSWORD=
+```
+
+**Palantir Foundry** (ontology integration):
+
+```bash
+# Add to .env
+MANDALA_PALANTIR_ENABLED=1
+MANDALA_PALANTIR_API_URL=https://your-foundry.palantir.com
+MANDALA_PALANTIR_TOKEN=your-foundry-token
+
+# Start connector
+docker compose --profile palantir up -d
+```
+
+**Kinaxis Maestro** (disruption integration):
+
+```bash
+# Add to .env
+MANDALA_KINAXIS_ENABLED=1
+MANDALA_KINAXIS_API_URL=https://your-kinaxismaestro.kinaxis.com
+MANDALA_KINAXIS_API_KEY=your-kinaxis-api-key
+
+# Start connector
+docker compose --profile kinaxis up -d
+```
+
+### Step 9: Stop and Cleanup
+
+```bash
+# Stop all services
+docker compose down
+
+# Stop and remove volumes (clears Redis data)
+docker compose down -v
+
+# View logs after stopping
+docker compose logs
+```
+
+## Troubleshooting
+
+**Webhook not receiving events**
+- Verify Samsara webhook URL is reachable from Samsara's servers
+- Check `MANDALA_SAMSARA_WEBHOOK_SECRET` matches Samsara webhook secret
+- Check API logs: `docker compose logs api`
+- Use ngrok for local testing: `ngrok http 8000`
+
+**Worker not processing events**
+- Check worker logs: `docker compose logs worker`
+- Verify Redis is healthy: `docker compose ps`
+- Check stream has events: `docker compose exec redis redis-cli XLEN mandala:events`
+
+**State store empty**
+- Events must be processed by worker before appearing in state store
+- Check worker logs for projection errors
+- Verify TTL hasn't expired (14-day default)
+
+**MCP server not connecting**
+- Verify `mandala[mcp]` is installed: `pip list | grep mandala`
+- Check Claude Desktop config JSON syntax
+- Test MCP server manually: `mandala mcp` (should wait for stdin)
+
+**Redis memory growing**
+- Stream auto-trims at 100,000 messages
+- State store keys expire after 14-day TTL
+- Monitor with: `docker compose exec redis redis-cli INFO memory`
+
+**Performance issues**
+- Add more worker processes: `docker compose up --scale worker=3`
+- Check Redis CPU/memory: `docker stats mandala-redis-1`
+- Consider AWS deployment for production (see Terraform module below)
 
 ## Three CLI commands. That's it.
 
