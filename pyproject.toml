@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mandala-bridge"
+version = "0.1.0"
+description = "Open-source event bridge between Samsara fleet telemetry and Descartes GLN customs/trade platforms."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Mandala Contributors" }]
+requires-python = ">=3.11"
+keywords = ["samsara", "descartes", "logistics", "customs", "cloudevents", "fleet", "telematics", "supply-chain"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "redis>=5.0",
+    "httpx>=0.27",
+    "click>=8.1",
+    "structlog>=24.1",
+    "tenacity>=8.2",
+]
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.0",
+]
+sink = [
+    # Optional warehouse sink writer; install only if you run the dbt pipeline.
+    "boto3>=1.34",
+]
+dev = [
+    "ruff>=0.4",
+]
+
+[project.scripts]
+mandala = "mandala.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/mandala-bridge/mandala"
+Documentation = "https://github.com/mandala-bridge/mandala/tree/main/docs"
+Issues = "https://github.com/mandala-bridge/mandala/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mandala"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "S", "C4", "RET", "SIM"]
+ignore = ["S101", "S104"]
+

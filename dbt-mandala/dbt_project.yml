@@ -1,0 +1,47 @@
+name: mandala
+version: 0.1.0
+config-version: 2
+
+require-dbt-version: [">=1.7.0", "<2.0.0"]
+
+profile: mandala
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  mandala:
+    # Where the raw_mandala_events table lives. Override in the consuming project.
+    raw_database: null            # e.g. ANALYTICS
+    raw_schema: raw               # e.g. raw / public
+    raw_table: raw_mandala_events
+    # Schema version this package targets. Bumped only on canonical schema changes.
+    schema_version: "0.1"
+
+models:
+  mandala:
+    +materialized: view
+    staging:
+      +schema: mandala_staging
+      +materialized: view
+    intermediate:
+      +schema: mandala_intermediate
+      +materialized: ephemeral
+    marts:
+      +schema: mandala
+      +materialized: table
+
+seeds:
+  mandala:
+    mandala_border_pois:
+      +schema: mandala
+      +column_types:
+        latitude: numeric
+        longitude: numeric

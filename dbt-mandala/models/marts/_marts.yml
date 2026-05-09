@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: mandala_shipments
+    description: One row per shipment with current status, customs state, and ETA.
+    columns:
+      - name: shipment_urn
+        tests: [not_null, unique]
+      - name: customs_status
+        tests:
+          - accepted_values:
+              values: [not_filed, filed, under_review, hold, exam, released, rejected]
+
+  - name: mandala_trucks_current
+    description: Latest known state per truck.
+    columns:
+      - name: truck_urn
+        tests: [not_null, unique]
+
+  - name: mandala_border_crossings
+    description: Ledger of every Port-of-Entry geofence crossing.
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: direction
+        tests:
+          - accepted_values:
+              values: [entered, exited]
+
+  - name: mandala_cold_chain_compliance
+    description: Cold-chain breach windows; the regulatory-liability surface.
+    columns:
+      - name: truck_urn
+        tests: [not_null]
+
+  - name: mandala_carbon_per_trip
+    description: Measured CO₂ per trip leg from fuel-consumption telemetry.
+    columns:
+      - name: truck_urn
+        tests: [not_null]
+      - name: co2_kg_estimated
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100000
+
+seeds:
+  - name: mandala_border_pois
+    description: Curated coordinates for major North-American Ports of Entry.
+    columns:
+      - name: poe_code
+        tests: [not_null, unique]

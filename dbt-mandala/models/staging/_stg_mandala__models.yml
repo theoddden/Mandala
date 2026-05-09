@@ -1,0 +1,113 @@
+version: 2
+
+models:
+  - name: stg_mandala__events
+    description: |
+      One row per Mandala CloudEvent. Base relation for every other staging model.
+      Mirrors the canonical Mandala schema v0.1.
+    columns:
+      - name: event_id
+        description: CloudEvents `id` — unique per delivered event.
+        tests:
+          - not_null
+          - unique
+      - name: event_type
+        description: Type from the `mandala.*` registry.
+        tests: [not_null]
+      - name: source
+        description: Producer URI (e.g. `mandala/connector/samsara`).
+        tests: [not_null]
+      - name: subject
+        description: Mandala URN identifying the subject entity.
+      - name: event_time
+        description: Producer-observed time.
+        tests: [not_null]
+      - name: ingested_at
+        description: Warehouse arrival time.
+        tests: [not_null]
+      - name: schema_version
+        description: Mandala canonical schema version.
+        tests:
+          - accepted_values:
+              values: ["0.1"]
+
+  - name: stg_mandala__truck_positions
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: truck_urn
+        tests: [not_null]
+      - name: latitude
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -90
+              max_value: 90
+      - name: longitude
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: -180
+              max_value: 180
+      - name: fuel_pct
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 100
+              row_condition: "fuel_pct is not null"
+
+  - name: stg_mandala__cold_chain_readings
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: truck_urn
+        tests: [not_null]
+      - name: temperature_c
+        description: Reefer-internal temperature in Celsius.
+
+  - name: stg_mandala__shipment_milestones
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: shipment_urn
+        tests: [not_null]
+      - name: status
+        tests:
+          - accepted_values:
+              values: [booked, dispatched, in_transit, at_border, delivered, cancelled]
+              quote: false
+              config:
+                where: "status is not null"
+
+  - name: stg_mandala__customs_entries
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: shipment_urn
+        tests: [not_null]
+      - name: customs_status
+        tests:
+          - accepted_values:
+              values: [filed, hold, exam, released, rejected]
+
+  - name: stg_mandala__geofence_crossings
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: truck_urn
+        tests: [not_null]
+      - name: direction
+        tests:
+          - accepted_values:
+              values: [entered, exited]
+
+  - name: stg_mandala__alerts
+    columns:
+      - name: event_id
+        tests: [not_null, unique]
+      - name: alert_type
+        tests: [not_null]
+      - name: severity
+        tests:
+          - accepted_values:
+              values: [low, medium, high, critical]
+              config:
+                where: "severity is not null"

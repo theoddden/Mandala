@@ -1,0 +1,35 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    command: ["uvicorn", "mandala.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MANDALA_REDIS_URL: redis://redis:6379/0
+      MANDALA_SAMSARA_WEBHOOK_SECRET: ${MANDALA_SAMSARA_WEBHOOK_SECRET:-dev-secret}
+      MANDALA_DESCARTES_WEBHOOK_SECRET: ${MANDALA_DESCARTES_WEBHOOK_SECRET:-dev-secret}
+      MANDALA_SAMSARA_API_TOKEN: ${MANDALA_SAMSARA_API_TOKEN:-}
+      MANDALA_DESCARTES_API_KEY: ${MANDALA_DESCARTES_API_KEY:-}
+    ports: ["8000:8000"]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  worker:
+    build: .
+    command: ["mandala", "worker"]
+    environment:
+      MANDALA_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis: { condition: service_healthy }
+
+volumes:
+  redis-data:
