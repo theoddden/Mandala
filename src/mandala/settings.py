@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     loadboard_post_default_radius_mi: int = 250
     loadboard_post_ttl_hours: int = 24
 
+    # Rail (Vizion API)
+    vizion_api_key: str = ""
+
     # Streams
     stream_inbound: str = "mandala:events"
     consumer_group: str = "mandala"

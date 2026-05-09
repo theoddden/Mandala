@@ -21,9 +21,10 @@ from mandala.core.state import StateStore
 from mandala.fmcsa import DETECTORS as FMCSA_DETECTORS
 from mandala.loadboard import DETECTORS as LOADBOARD_DETECTORS
 from mandala.projection import project
+from mandala.rail import DETECTORS as RAIL_DETECTORS
 from mandala.settings import get_settings
 
-DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS
+DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETECTORS
 
 log = structlog.get_logger(__name__)
 

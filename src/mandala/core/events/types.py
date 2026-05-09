@@ -68,6 +68,15 @@ class EventType(StrEnum):
     # --- Carrier enrichment (FMCSA SAFER) ----------------------------------
     CARRIER_FMCSA_ENRICHED = "mandala.carrier.fmcsa.enriched"
 
+    # --- Rail / intermodal (Vizion API) ------------------------------------
+    RAIL_INGATE = "mandala.rail.ingate"
+    RAIL_OUTGATE = "mandala.rail.outgate"
+    RAIL_ARRIVAL = "mandala.rail.arrival"
+    RAIL_DEPARTURE = "mandala.rail.departure"
+    RAIL_AVAILABLE_FOR_PICKUP = "mandala.rail.available_for_pickup"
+    RAIL_LAST_FREE_DAY = "mandala.rail.last_free_day"
+    RAIL_INTERMODAL_STATUS = "mandala.rail.intermodal_status"
+
     # --- Internal / system ------------------------------------------------
     PLAYBOOK_TRIGGERED = "mandala.playbook.triggered"
     PLAYBOOK_ACTION_OK = "mandala.playbook.action.ok"

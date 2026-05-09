@@ -104,6 +104,11 @@ Fully functional out of the box with **no commercial agreements**:
   out-of-service rate, and operating authority status. No credentials
   required. Decorates carrier events with FMCSA data when DOT number is
   present.
+- **Rail intermodal enrichment (Vizion API)** — covers all 7 Class I
+  North American railways (UP, BNSF, CSX, NS, CN, CPKC) with a single
+  API key. No LOA required. Enriches container events with rail status,
+  milestones, ETA, last free day, and availability for pickup. Free trial
+  available.
 - **Cross-border alert engine** — fires when a truck enters a POE
   geofence with no matching customs filing.
 - **Cold-chain alerts** — temperature against the declared shipment
@@ -115,7 +120,7 @@ Fully functional out of the box with **no commercial agreements**:
   (`MANDALA_LOADBOARD_ENABLED=0`); requires partner credentials per board.
 - **MCP server** — five read-only tools (`get_shipment`, `get_truck`,
   `check_customs_status`, `get_recent_alerts`, `get_fleet_near_border`).
-- **dbt-mandala package** — staging + intermediate + 6 marts.
+- **dbt-mandala package** — staging + intermediate + 7 marts.
 - **Single Redis dependency.** No Postgres, no Kafka, no K8s.
 
 Datamyne and Visual Compliance scaffolds exist but are stubs until
@@ -181,6 +186,7 @@ Marts:
 | `mandala_shipments` | shipment | the single pane of glass |
 | `mandala_trucks_current` | truck | latest known truck state |
 | `mandala_carrier_safety_profile` | DOT number | live CSA scores, inspection history, FMCSA authority |
+| `mandala_intermodal_legs` | container | rail status, ETA, last free day, milestones |
 | `mandala_border_crossings` | crossing event | retroactive customs audits |
 | `mandala_cold_chain_compliance` | breach window | regulatory liability surface |
 | `mandala_carbon_per_trip` | journey | CSRD / CBAM-friendly emissions |
