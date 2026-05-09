@@ -1,0 +1,43 @@
+name: Daily Fleet Intelligence Report
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 6:00 AM UTC daily
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Mandala
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install httpx slack-sdk
+
+      - name: Generate Fleet Intelligence Report
+        env:
+          MANDALA_SAMSARA_API_KEY: ${{ secrets.SAMSARA_API_KEY }}
+          MANDALA_REDIS_URL: redis://localhost:6379/0
+          REPORT_TYPE: ${{ github.event.inputs.report_type || 'cross_border_compliance' }}
+          OUTPUT_FORMAT: ${{ github.event.inputs.output || 'slack' }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          python scripts/generate_fleet_report.py \
+            --report-type "$REPORT_TYPE" \
+            --output "$OUTPUT_FORMAT"
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-intelligence-report
+          path: /tmp/fleet_report_*.json
+          retention-days: 30

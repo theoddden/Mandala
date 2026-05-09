@@ -127,6 +127,27 @@ mandala worker    # event loop: project + alert
 mandala mcp       # MCP stdio server for LLMs
 ```
 
+## GitHub Actions
+
+Mandala includes a GitHub Actions workflow for automated daily fleet intelligence reports:
+
+- **Daily Fleet Intelligence Report** — Runs at 6:00 AM UTC daily
+- **Report types** — `cross_border_compliance`, `carrier_safety`
+- **Output destinations** — Slack webhook, file, or stdout
+- **Manual trigger** — Can be run on-demand via `workflow_dispatch`
+
+To enable:
+
+1. Add secrets to your GitHub repo:
+   - `SAMSARA_API_KEY` — Your Samsara API token
+   - `SLACK_WEBHOOK_URL` — (optional) Slack webhook for notifications
+
+2. Enable the workflow in your repo's Actions tab
+
+3. Run manually or wait for the daily scheduled run
+
+The workflow generates JSON reports with fleet compliance data and uploads artifacts for 30-day retention.
+
 ## The dbt package
 
 The Mandala worker (or your own pipeline) writes events to a warehouse
