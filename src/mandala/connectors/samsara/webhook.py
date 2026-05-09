@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 import structlog
+from datetime import UTC, datetime
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
 from mandala.connectors.samsara.normalize import normalize
@@ -27,6 +28,7 @@ async def ingest_samsara_webhook(
 ) -> Response:
     settings = get_settings()
     body = await request.body()
+    received_at = datetime.now(UTC)
 
     if not verify_hmac_sha256(
         body=body,
@@ -52,6 +54,8 @@ async def ingest_samsara_webhook(
     stream = settings.stream_inbound
 
     for event in events:
+        # Set received_at timestamp for three-timestamp accounting
+        event.received_at = received_at
         key = event.mandalaingestid or hash_payload(event.type, event.subject or "", event.to_json())
         if not await idempotency.claim(key, ttl_seconds=86_400):
             log.info("samsara.webhook.duplicate", key=key, type=event.type)

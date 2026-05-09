@@ -27,7 +27,11 @@ ranked_ship as (
 
 select
     c.event_id,
-    c.event_time         as crossed_at,
+    c.event_time         as occurred_at,
+    c.received_at,
+    c.processed_at,
+    datediff('second', c.event_time, c.received_at) as detection_lag_sec,
+    datediff('second', c.event_time, c.processed_at) as alert_lag_sec,
     c.direction,
     c.truck_urn,
     c.geofence_id        as poe_code,

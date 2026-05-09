@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from mandala.core.events.types import EventType
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
 SPEC_VERSION = "1.0"
 
 
@@ -49,7 +49,7 @@ class MandalaEvent(BaseModel):
     type: str  # str (not EventType) so unknown subtypes round-trip cleanly
     specversion: str = SPEC_VERSION
     # --- CloudEvents optional attributes ----------------------------------
-    time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    time: datetime = Field(default_factory=lambda: datetime.now(UTC))  # when the physical event OCCURRED
     subject: str | None = None
     datacontenttype: str = "application/json"
     dataschema: str | None = None
@@ -58,6 +58,9 @@ class MandalaEvent(BaseModel):
     mandalaingestid: str | None = None
     traceparent: str | None = None
     tracestate: str | None = None
+    # --- Three-timestamp accounting ----------------------------------------
+    received_at: datetime | None = Field(default=None, description="When Mandala's webhook received the event")
+    processed_at: datetime | None = Field(default=None, description="When the worker ran detectors on the event")
     # --- Payload ----------------------------------------------------------
     data: Any = None
 

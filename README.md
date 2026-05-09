@@ -148,6 +148,32 @@ To enable:
 
 The workflow generates JSON reports with fleet compliance data and uploads artifacts for 30-day retention.
 
+## Terraform Module
+
+For enterprise deployments, Mandala provides an AWS Terraform module in the Terraform Registry:
+
+```hcl
+module "mandala" {
+  source  = "theoddden/mandala/aws"
+  version = "~> 0.1"
+
+  samsara_webhook_secret = var.samsara_key
+  vizion_api_key         = var.vizion_key
+}
+```
+
+**Provisions:**
+- AWS ElastiCache Redis (~$15/month)
+- Two ECS Fargate tasks (mandala serve + mandala worker)
+- Application Load Balancer with HTTPS
+- AWS Secrets Manager for API keys
+- IAM roles with least-privilege access
+- CloudWatch log groups
+
+**Cost:** ~$50-60/month for basic deployment in us-east-1
+
+See [terraform/aws/README.md](terraform/aws/README.md) for full documentation.
+
 ## The dbt package
 
 The Mandala worker (or your own pipeline) writes events to a warehouse
@@ -181,6 +207,29 @@ Marts:
 Every event is a [CloudEvents 1.0](https://cloudevents.io) envelope with
 `type` from the `mandala.*` registry. The full contract — versioned
 independently of the codebase — is in **[SCHEMA.md](SCHEMA.md)**.
+
+### Three-Timestamp Event Accounting
+
+Every MandalaEvent includes three timestamps for compliance, audit, and liability tracking:
+
+- **`time`** — When the physical event occurred (e.g., truck crossed POE)
+- **`received_at`** — When Mandala's webhook received the event
+- **`processed_at`** — When the worker ran detectors on the event
+
+This enables precise detection lag measurement and audit trail reconstruction:
+
+```sql
+-- mandala_border_crossings includes these fields
+select
+    occurred_at,
+    received_at,
+    processed_at,
+    datediff('second', occurred_at, received_at) as detection_lag_sec,
+    datediff('second', occurred_at, processed_at) as alert_lag_sec
+from mandala_border_crossings
+```
+
+For insurance claims and customs disputes, the three timestamps prove when Mandala detected an issue relative to when the event occurred. Schema version bumped to 0.2.
 
 ## Risks & privacy
 

@@ -1,16 +1,18 @@
-"""The single Mandala worker.
+"""The single Mandala worker process.
 
-Reads the inbound stream, projects events into state, runs alert detectors,
-publishes any resulting alerts back onto the same stream so they flow to
-the warehouse sink and any external subscribers.
+Consumes events from the inbound Redis stream, projects them into the
+StateStore, runs detectors (alerts, load board auto-posting, enrichment),
+and publishes any resulting events back to the stream.
 
-One process. No celery. No multiple worker types. If you outgrow this,
-fork the loop and shard by stream key.
+This is the single Mandala worker process. Scale horizontally by running
+multiple instances — they'll share the consumer group.
 """
 from __future__ import annotations
 
-import asyncio
 import socket
+import structlog
+
+from datetime import datetime, timezone
 
 import redis.asyncio as redis
 import structlog
@@ -35,21 +37,52 @@ async def run() -> None:
     bus = RedisStreamsBus(r)
     state = StateStore(r)
     consumer = f"{socket.gethostname()}-{__import__('os').getpid()}"
-    log.info("mandala.worker.start", stream=s.stream_inbound, consumer=consumer)
 
-    try:
-        async for msg_id, event in bus.subscribe(
-            s.stream_inbound, group=s.consumer_group, consumer=consumer
-        ):
-            try:
-                await project(event, state)
-                for detector in DETECTORS:
-                    for alert in await detector(event, state, r):
-                        await bus.publish(s.stream_inbound, alert)
-            except Exception:  # noqa: BLE001
-                log.exception("worker.process_failed", event_id=event.id, type=event.type)
-            finally:
-                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+    log.info(
+        "mandala.worker.start",
+        stream=s.stream_inbound,
+        consumer=consumer,
+        group=s.consumer_group,
+    )
+
+    while True:
+        messages = await bus.consume(
+            stream=s.stream_inbound,
+            group=s.consumer_group,
+            consumer=consumer,
+            count=10,
+            block_ms=5000,
+        )
+
+        if not messages:
+            continue
+
+        for msg_id, event in messages:
+            log.debug("mandala.worker.event", id=event.id, type=event.type)
+
+            # Set processed_at timestamp for three-timestamp accounting
+            event.processed_at = datetime.now(timezone.utc)
+
+            # Project into StateStore
+            await project(state, event)
+
+            # Run detectors
+            for detector in DETECTORS:
+                try:
+                    new_events = await detector(event, state, r)
+                    for ne in new_events:
+                        # Set processed_at timestamp for three-timestamp accounting
+                        ne.processed_at = datetime.now(timezone.utc)
+                        await bus.publish(s.stream_inbound, ne)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception(
+                        "mandala.worker.detector_failed",
+                        detector=detector.__name__,
+                        event_id=event.id,
+                        error=str(exc),
+                    )
+
+            await bus.ack(s.stream_inbound, group=s.consumer_group, id=msg_id)
     finally:
         await r.aclose()
 
