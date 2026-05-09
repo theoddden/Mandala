@@ -100,6 +100,22 @@ pip install 'mandala[mcp]' # +MCP server
 
 ## Quickstart (under an hour)
 
+### What Mandala Does (Simple Version)
+
+Mandala connects your Samsara fleet data to trade/customs systems (Descartes) and pushes enrichment back to your Samsara dashboard. No separate Mandala dashboard needed.
+
+**Samsara Dashboard Integration:**
+- Custom field "Customs Status" shows "FILED" or "NO_FILING"
+- Custom field "Last Border Crossing" shows POE and timestamp
+- Custom field "Carrier CSA Score" shows safety rating
+- Alerts appear in Samsara for missing customs filings, cold chain breaches, carrier safety issues
+
+**How It Works:**
+```
+Samsara Webhook → Mandala → Descartes/FMCSA → Samsara Dashboard
+                          (enrichment)    (push back)
+```
+
 ### Prerequisites
 
 - **Docker & Docker Compose** — for running Redis, API, and worker
@@ -121,8 +137,9 @@ Edit `.env` with your credentials:
 # Required for Samsara webhook
 MANDALA_SAMSARA_WEBHOOK_SECRET=your-secret-here
 
-# Optional: Samsara API for outbound calls (alerts, route updates)
-MANDALA_SAMSARA_API_TOKEN=
+# Required for Samsara outbound integration (push enrichment back to Samsara dashboard)
+MANDALA_SAMSARA_API_TOKEN=your-samsara-api-token
+MANDALA_SAMSARA_OUTBOUND_ENABLED=1  # Set to 1 to enable Samsara dashboard integration
 MANDALA_SAMSARA_BASE_URL=https://api.samsara.com
 
 # Optional: Descartes MacroPoint (trade/customs)
@@ -137,7 +154,10 @@ MANDALA_DESCARTES_BASE_URL=https://gln.descartes.com
 MANDALA_VIZION_API_KEY=
 ```
 
-**Important**: Set `MANDALA_SAMSARA_WEBHOOK_SECRET` to a random string. This is the HMAC secret Samsara uses to sign webhooks. You'll configure the same value in Samsara's webhook UI.
+**Important**: 
+- Set `MANDALA_SAMSARA_WEBHOOK_SECRET` to a random string. This is the HMAC secret Samsara uses to sign webhooks. You'll configure the same value in Samsara's webhook UI.
+- Set `MANDALA_SAMSARA_API_TOKEN` to your Samsara API token (from Samsara Admin Console → API Tokens).
+- Set `MANDALA_SAMSARA_OUTBOUND_ENABLED=1` to push enrichment back to your Samsara dashboard (custom fields + alerts).
 
 ### Step 2: Start Mandala
 
@@ -272,7 +292,35 @@ Available tools:
 - `get_recent_alerts` — Get recent alerts
 - `get_fleet_near_border` — Get trucks near POE geofences
 
-### Step 8: Enable Additional Connectors (Optional)
+### Step 8: Enable Samsara Dashboard Integration (Recommended)
+
+This pushes Mandala enrichment back to your Samsara dashboard. No separate Mandala dashboard needed.
+
+**What appears in Samsara:**
+- Custom field "mandala_alert_status" shows alert type and severity
+- Alerts appear in Samsara for customs compliance, cold chain, carrier safety
+- All enrichment happens automatically when Mandala detects issues
+
+**Configuration:**
+```bash
+# Already set in Step 1, but verify:
+MANDALA_SAMSARA_OUTBOUND_ENABLED=1
+MANDALA_SAMSARA_API_TOKEN=your-samsara-api-token
+```
+
+**Restart Mandala:**
+```bash
+docker compose restart worker
+```
+
+**Verify in Samsara:**
+1. Log into Samsara Admin Console
+2. Navigate to **Fleet → Vehicles**
+3. Click on a truck that crossed a border
+4. Check custom field "mandala_alert_status" — should show alert info
+5. Check **Alerts** tab — should show Mandala alerts
+
+### Step 9: Enable Additional Connectors (Optional)
 
 **FMCSA SAFER** (carrier enrichment, no credentials):
 
@@ -326,7 +374,7 @@ MANDALA_KINAXIS_API_KEY=your-kinaxis-api-key
 docker compose --profile kinaxis up -d
 ```
 
-### Step 9: Stop and Cleanup
+### Step 10: Stop and Cleanup
 
 ```bash
 # Stop all services

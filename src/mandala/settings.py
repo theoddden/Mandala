@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # Outbound API credentials (optional)
     samsara_api_token: str = ""
     samsara_base_url: str = "https://api.samsara.com"
+    samsara_outbound_enabled: bool = False  # Push enrichment back to Samsara
     descartes_api_key: str = ""
     descartes_macropoint_base_url: str = "https://api.macropoint.com"
 
