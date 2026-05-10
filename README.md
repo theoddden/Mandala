@@ -204,6 +204,18 @@ MANDALA_DESCARTES_BASE_URL=https://gln.descartes.com
 
 # Optional: Vizion API (rail intermodal — single API key, free trial)
 MANDALA_VIZION_API_KEY=
+
+# Optional: CargoWise (WiseTech eAdaptor — international freight)
+MANDALA_CARGOWISE_WEBHOOK_SECRET=
+MANDALA_CARGOWISE_EADAPTOR_URL=
+MANDALA_CARGOWISE_USERNAME=
+MANDALA_CARGOWISE_PASSWORD=
+MANDALA_CARGOWISE_ORGANIZATION_CODE=
+
+# Optional: Load-board auto-posting (DAT — opt-in)
+MANDALA_LOADBOARD_ENABLED=0
+MANDALA_DAT_CLIENT_ID=
+MANDALA_DAT_CLIENT_SECRET=
 ```
 
 **Important**: 
@@ -621,6 +633,7 @@ Marts:
 | `mandala_carrier_safety_profile` | DOT number | live CSA scores, inspection history, FMCSA authority |
 | `mandala_intermodal_legs` | container | rail status, ETA, last free day, milestones |
 | `mandala_border_crossings` | crossing event | retroactive customs audits |
+| `mandala_lane_intelligence` | lane + POE + day + hour + carrier | proprietary delay baselines from accumulated crossing history |
 | `mandala_cold_chain_compliance` | breach window | regulatory liability surface |
 | `mandala_carbon_per_trip` | journey | CSRD / CBAM-friendly emissions |
 
