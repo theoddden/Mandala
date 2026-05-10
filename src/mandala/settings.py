@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     aurora_beacon_enabled: bool = False  # Aurora Beacon platform
     aurora_intelligence_sharing: bool = True  # Share Aurora data with Samsara trucks
 
+    # GS1 EPCIS 2.0 - global standard for supply chain traceability
+    # See docs/standards/epcis.md for integration pattern
+    epcis_enabled: bool = False  # Disabled by default until EPCIS endpoint configured
+    epcis_capture_url: str = ""  # EPCIS capture endpoint (e.g., http://epcis-server:8080/capture)
+    epcis_query_url: str = ""  # EPCIS query endpoint (e.g., http://epcis-server:8080/query)
+    epcis_gln: str = ""  # GS1 Global Location Number (your organization)
+
+    # IOF Supply Chain Reference Ontology (SCRO) alignment
+    # See docs/standards/iof-mapping.md for alignment document
+    iof_enabled: bool = False  # Add IOF URIs to events for semantic web compatibility
+    iof_base_uri: str = "https://w3id.org/mandala/iof/"  # Base URI for IOF concepts
+
     # Streams
     stream_inbound: str = "mandala:events"
     consumer_group: str = "mandala"

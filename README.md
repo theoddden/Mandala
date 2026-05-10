@@ -131,8 +131,17 @@ Fully functional out of the box with **no commercial agreements**:
 
 Datamyne, Visual Compliance, and Aurora scaffolds exist but are stubs until
 commercial partnerships are in place. See docs/integrations/aurora.md for the
-autonomous truck integration pattern. Mandala degrades gracefully — it
-must be useful with **only** Samsara configured.
+autonomous truck integration pattern.
+
+**GS1 EPCIS 2.0 and IOF SCRO standards compliance:**
+Mandala includes an EPCIS 2.0 adapter (src/mandala/connectors/epcis/) that emits
+MandalaEvents in EPCIS 2.0 JSON format, making Mandala compatible with every
+GS1 EPCIS subscriber globally. See docs/standards/epcis.md for the EPCIS
+integration pattern. Mandala also includes IOF Supply Chain Reference Ontology
+(SCRO) alignment (docs/standards/iof-mapping.md), making Mandala an academically
+defensible reference implementation for supply chain operations.
+
+Mandala degrades gracefully — it must be useful with **only** Samsara configured.
 
 ## Install
 
