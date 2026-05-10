@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     iof_enabled: bool = False  # Add IOF URIs to events for semantic web compatibility
     iof_base_uri: str = "https://w3id.org/mandala/iof/"  # Base URI for IOF concepts
 
+    # SAP (Transportation Management, Extended Warehouse Management)
+    # See docs/integrations/sap.md for integration pattern
+    sap_enabled: bool = False  # Disabled by default until SAP credentials configured
+    sap_host: str = ""  # SAP host (e.g., sap-system.example.com)
+    sap_port: int = 44300  # SAP port (default 44300 for HTTP)
+    sap_client_id: str = ""  # SAP OAuth client ID
+    sap_client_secret: str = ""  # SAP OAuth client secret
+
     # Streams
     stream_inbound: str = "mandala:events"
     consumer_group: str = "mandala"

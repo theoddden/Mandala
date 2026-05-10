@@ -1,0 +1,24 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schemas/server-card/v1.0",
+  "version": "1.0",
+  "serverInfo": {
+    "name": "mandala",
+    "version": "0.1.0",
+    "description": "Open-source event bridge between Samsara fleet telemetry and Descartes GLN customs/trade platforms."
+  },
+  "repository": {
+    "type": "github",
+    "url": "https://github.com/theoddden/Mandala"
+  },
+  "packages": [
+    {
+      "registry_type": "pypi",
+      "identifier": "mandala",
+      "transport": { "type": "stdio" }
+    }
+  ],
+  "capabilities": {
+    "tools": true,
+    "resources": true
+  }
+}

@@ -2,6 +2,8 @@
 
 > The bridge between the wheel and the plane.
 
+<!-- mcp-name: io.github.theoddden/mandala -->
+
 **Mandala** is an open-source event bridge that connects fleet telemetry
 (Samsara) and trade/customs platforms (Descartes — starting with
 MacroPoint) through a single canonical event schema. It ships in two
@@ -129,9 +131,10 @@ Fully functional out of the box with **no commercial agreements**:
 - **dbt-mandala package** — staging + intermediate + 8 marts including `mandala_lane_intelligence`, which generates proprietary lane-level delay baselines from accumulated crossing history. After 90 days of operation, produces intelligence no vendor sells: crossing time distribution by POE, day of week, hour, carrier, and cargo type. This is what Project44 charges $200K/year to approximate from aggregated shipper data. Mandala generates it for free from your own events.
 - **Single Redis dependency.** No Postgres, no Kafka.
 
-Datamyne, Visual Compliance, and Aurora scaffolds exist but are stubs until
+Datamyne, Visual Compliance, Aurora, and SAP scaffolds exist but are stubs until
 commercial partnerships are in place. See docs/integrations/aurora.md for the
-autonomous truck integration pattern.
+autonomous truck integration pattern and docs/integrations/sap.md for the SAP
+TM/EWM telemetry integration pattern.
 
 **GS1 EPCIS 2.0 and IOF SCRO standards compliance:**
 Mandala includes an EPCIS 2.0 adapter (src/mandala/connectors/epcis/) that emits
