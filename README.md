@@ -120,7 +120,7 @@ Fully functional out of the box with **no commercial agreements**:
   geofence with no matching customs filing.
 - **Cold-chain alerts** — temperature against the declared shipment
   range.
-- **Load-board auto-posting** (DAT + Truckstop, **opt-in**) — when a
+- **Load-board auto-posting** (DAT, **opt-in**) — when a
   delivery lands, Mandala emits `mandala.truck.empty` and
   posts available capacity to every configured board with the truck's
   current GPS position and equipment type. Disabled by default
@@ -381,16 +381,13 @@ MANDALA_VIZION_API_KEY=your-vizion-key
 # Free trial: https://www.vizionapi.com
 ```
 
-**Load-board auto-posting** (DAT + Truckstop):
+**Load-board auto-posting** (DAT):
 
 ```bash
 # Add to .env
 MANDALA_LOADBOARD_ENABLED=1
 MANDALA_DAT_CLIENT_ID=
 MANDALA_DAT_CLIENT_SECRET=
-MANDALA_TRUCKSTOP_INTEGRATION_ID=
-MANDALA_TRUCKSTOP_USERNAME=
-MANDALA_TRUCKSTOP_PASSWORD=
 ```
 
 ### Step 10: Stop and Cleanup

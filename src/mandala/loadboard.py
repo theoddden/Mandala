@@ -9,7 +9,7 @@ worker pipeline:
    posters don't need to round-trip Samsara.
 
 2. :func:`post_to_loadboards` — when ``mandala.truck.empty`` lands, post
-   the truck to every configured load board (DAT, Truckstop) in
+   the truck to every configured load board (DAT) in
    parallel. Records each posting id in state and emits a
    ``mandala.loadboard.posted`` audit event per board.
 
@@ -121,34 +121,10 @@ async def _post_to_dat(
     return {"board": "dat", "ok": True, "response": resp, "posting_id": resp.get("postingId")}
 
 
-async def _post_to_truckstop(
-    *,
-    truck_urn: str,
-    equipment: EquipmentType,
-    lat: float,
-    lon: float,
-    radius_mi: int,
-    ttl_hours: int,
-    external_ref: str,
-) -> dict[str, Any]:
-    from mandala.connectors.truckstop.client import TruckstopClient
-
-    async with TruckstopClient() as client:
-        resp = await client.post_truck(
-            equipment=equipment,
-            origin_lat=lat,
-            origin_lon=lon,
-            radius_mi=radius_mi,
-            ttl_hours=ttl_hours,
-            external_reference=external_ref,
-            comments=f"Mandala auto-post {socket.gethostname()}",
-        )
-    return {"board": "truckstop", "ok": True, "response": resp, "posting_id": resp.get("postingId") or resp.get("id")}
 
 
 _BOARDS = {
     "dat": _post_to_dat,
-    "truckstop": _post_to_truckstop,
 }
 
 
@@ -171,13 +147,6 @@ async def post_to_loadboards(
 
         if DATConnector().is_configured():
             enabled["dat"] = _post_to_dat
-    except ImportError:
-        pass
-    try:
-        from mandala.connectors.truckstop import TruckstopConnector
-
-        if TruckstopConnector().is_configured():
-            enabled["truckstop"] = _post_to_truckstop
     except ImportError:
         pass
 

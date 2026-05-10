@@ -46,12 +46,6 @@ class Settings(BaseSettings):
     dat_base_url: str = "https://identity.api.dat.com"
     dat_postings_base_url: str = "https://freight.api.dat.com"
 
-    # Load-board outbound (Truckstop)
-    truckstop_integration_id: str = ""
-    truckstop_username: str = ""
-    truckstop_password: str = ""
-    truckstop_base_url: str = "https://api.truckstop.com"
-
     # Load-board behaviour
     loadboard_enabled: bool = False
     loadboard_post_default_radius_mi: int = 250
