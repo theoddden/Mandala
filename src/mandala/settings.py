@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     # Rail (Vizion API)
     vizion_api_key: str = ""
 
+    # Aurora (autonomous trucks) - partnership required
+    # See docs/integrations/aurora.md for integration pattern
+    aurora_enabled: bool = False  # Disabled by default until partnership available
+    aurora_webhook_secret: str = ""
+    aurora_api_key: str = ""
+    aurora_beacon_enabled: bool = False  # Aurora Beacon platform
+    aurora_intelligence_sharing: bool = True  # Share Aurora data with Samsara trucks
+
     # Streams
     stream_inbound: str = "mandala:events"
     consumer_group: str = "mandala"
