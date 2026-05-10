@@ -41,6 +41,24 @@ event layer.
 
 Mandala is an **event-sourced integration bridge** with a short-lived Redis projection. It's not a visibility platform, not a TMS, and not a data warehouse — it's the plumbing that connects them.
 
+### Architectural Boundary: POST /events
+
+Mandala's job is to be the **canonical event bus**. Your job is to get your data into it.
+
+**The contract:**
+- POST events to `/events` endpoint
+- Follow the CloudEvents 1.0 schema (see SCHEMA.md)
+- Mandala handles projection, detection, alerting, and materialized views
+
+**What you implement yourself:**
+- ATRI bottleneck polling → POST to `/events`
+- CBP ACE customs status → POST to `/events`
+- AIS vessel tracking → POST to `/events`
+- SAP file drops → POST to `/events`
+- Postgres/MySQL CDC → POST to `/events`
+
+These are 20-line Python scripts or shell commands, not built-in connectors. Mandala provides optional utilities (`src/mandala/core/connector.py`, `scheduler.py`, `file_watcher.py`, `cdc.py`) but the data ingestion logic is yours.
+
 ### Core Architecture (~240 lines)
 
 | Component | Purpose | Lines |
@@ -463,6 +481,81 @@ If you need cross-vendor deduplication, implement it in your detector logic by q
 - Check Redis CPU/memory: `docker stats mandala-redis-1`
 - Consider AWS deployment for production (see Terraform module below)
 - Consumer-group lag metrics are published to Prometheus for monitoring
+
+## Self-Implemented Data Ingestion
+
+Mandala provides optional utilities for custom data ingestion, but you implement the logic yourself and POST to `/events`.
+
+### Example: ATRI Bottleneck Polling
+
+```python
+# atri_poller.py
+import httpx
+import asyncio
+
+async def poll_atri():
+    client = httpx.AsyncClient()
+    while True:
+        data = await client.get("https://atri.online.org/api/bottlenecks").json()
+        for corridor, delay in data.items():
+            event = {
+                "type": "mandala.atri.bottleneck.updated",
+                "source": "custom/atri_poller",
+                "time": datetime.utcnow().isoformat(),
+                "data": {"corridor": corridor, "delay": delay},
+            }
+            await httpx.post("http://localhost:8000/events", json=event)
+        await asyncio.sleep(90 * 24 * 60 * 60)  # 90 days
+```
+
+### Example: SAP File Drop
+
+```python
+# sap_watcher.py
+from mandala.core.file_watcher import FileWatcher
+
+async def on_file(path):
+    # Parse CSV/EDI
+    shipments = parse_csv(path)
+    for shipment in shipments:
+        event = {
+            "type": "mandala.shipment.imported",
+            "source": "custom/sap_watcher",
+            "time": datetime.utcnow().isoformat(),
+            "data": shipment,
+        }
+        await httpx.post("http://localhost:8000/events", json=event)
+
+watcher = FileWatcher()
+watcher.watch_directory("sap_exports", "*.csv", on_file)
+await watcher.start()
+```
+
+### Example: Postgres CDC
+
+```python
+# postgres_cdc.py
+from mandala.core.cdc import PostgresCDC
+
+async def on_change(change):
+    event = {
+        "type": f"mandala.{change['table']}.updated",
+        "source": "custom/postgres_cdc",
+        "time": datetime.utcnow().isoformat(),
+        "data": change["data"],
+    }
+    await httpx.post("http://localhost:8000/events", json=event)
+
+cdc = PostgresCDC(
+    connection_string="postgresql://...",
+    slot_name="mandala_cdc",
+    publication="mandala_pub",
+    callback=on_change,
+)
+await cdc.start()
+```
+
+These are your scripts. Mandala just needs events in the right format.
 
 ## Four CLI commands. That's it.
 
