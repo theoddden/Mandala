@@ -53,8 +53,15 @@ async def ingest_macropoint_webhook(
     idempotency = request.app.state.idempotency
     stream = settings.stream_inbound
 
+    # Idempotency fallback key must be deterministic across webhook retries.
+    # Use the raw body bytes — ``event.to_json()`` is not stable because the
+    # envelope contains a freshly-generated id/received_at per parse.
+    body_fingerprint = hash_payload(body)
+
     for event in events:
-        key = event.mandalaingestid or hash_payload(event.type, event.subject or "", event.to_json())
+        key = event.mandalaingestid or hash_payload(
+            event.type, event.subject or "", body_fingerprint
+        )
         if not await idempotency.claim(key, ttl_seconds=86_400):
             log.info("macropoint.webhook.duplicate", key=key, type=event.type)
             continue

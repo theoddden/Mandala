@@ -53,10 +53,17 @@ async def ingest_samsara_webhook(
     idempotency = request.app.state.idempotency
     stream = settings.stream_inbound
 
+    # Idempotency fallback key must be deterministic across webhook retries.
+    # The raw request body is the only source-of-truth that's stable across
+    # delivery attempts (event.id and event.received_at are not).
+    body_fingerprint = hash_payload(body)
+
     for event in events:
         # Set received_at timestamp for three-timestamp accounting
         event.received_at = received_at
-        key = event.mandalaingestid or hash_payload(event.type, event.subject or "", event.to_json())
+        key = event.mandalaingestid or hash_payload(
+            event.type, event.subject or "", body_fingerprint
+        )
         if not await idempotency.claim(key, ttl_seconds=86_400):
             log.info("samsara.webhook.duplicate", key=key, type=event.type)
             continue

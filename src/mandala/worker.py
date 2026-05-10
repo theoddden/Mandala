@@ -10,9 +10,8 @@ multiple instances — they'll share the consumer group.
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
-import structlog
-
 from datetime import datetime, timezone
 
 import redis.asyncio as redis
@@ -24,6 +23,7 @@ from mandala.core.alert_aggregation import AlertAggregator
 from mandala.core.alert_routing import AlertRouter
 from mandala.core.bus import RedisStreamsBus
 from mandala.core.dead_letter import DeadLetterQueue
+from mandala.core.events.envelope import MandalaEvent
 from mandala.core.metrics import (
     alert_routing_duration_seconds,
     alerts_routed_total,
@@ -56,7 +56,7 @@ async def run() -> None:
     dlq = DeadLetterQueue(r)
     alert_router = AlertRouter()
     alert_aggregator = AlertAggregator(r)
-    consumer = f"{socket.gethostname()}-{__import__('os').getpid()}"
+    consumer = f"{socket.gethostname()}-{os.getpid()}"
     
     # Samsara outbound client (optional)
     samsara_outbound: SamsaraOutboundClient | None = None
@@ -84,10 +84,14 @@ async def run() -> None:
         group=s.consumer_group,
     )
 
+    # Throttle DLQ size metric updates to avoid N+1 round trips per event.
+    DLQ_STATS_INTERVAL_SEC = 30.0
+    last_dlq_stats_at = 0.0
+
     try:
         while True:
             messages = await bus.consume(
-                stream=s.stream_inbound,
+                s.stream_inbound,
                 group=s.consumer_group,
                 consumer=consumer,
                 count=10,
@@ -111,13 +115,14 @@ async def run() -> None:
 
                 # Project into StateStore (with DLQ fallback)
                 try:
-                    await project(state, event)
+                    await project(event, state)
                 except Exception as exc:  # noqa: BLE001
                     log.exception("mandala.worker.projection_failed", event_id=event.id)
                     await dlq.publish(event, str(exc), "projection")
                     dlq_events_total.labels(context="projection").inc()
-                    # Continue to detectors even if projection failed
-                    await bus.ack(s.stream_inbound, group=s.consumer_group, id=msg_id)
+                    # Skip detectors when projection fails: detectors read state
+                    # that wasn't updated, so their results would be inconsistent.
+                    await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
                     continue
 
                 # Run detectors (with DLQ fallback)
@@ -132,7 +137,16 @@ async def run() -> None:
                         for ne in new_events:
                             # Set processed_at timestamp for three-timestamp accounting
                             ne.processed_at = datetime.now(timezone.utc)
-                            await bus.publish(s.stream_inbound, ne)
+                            # Detector-emitted events have a fresh `time` per
+                            # invocation, so the bus-layer dedup key would never
+                            # match. Disable it here; webhook layer is the
+                            # authoritative dedup boundary for ingest.
+                            published_id = await bus.publish(
+                                s.stream_inbound, ne, enable_deduplication=False
+                            )
+                            if not published_id:
+                                # Dropped as duplicate — don't inflate metrics.
+                                continue
                             events_processed_total.labels(event_type=ne.type, detector=detector.__name__).inc()
                             
                             # Push alerts back to Samsara if enabled
@@ -173,13 +187,17 @@ async def run() -> None:
 
                 event_duration = (datetime.now(timezone.utc) - event_start).total_seconds()
                 events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(event_duration)
-                
-                # Update DLQ size metric
-                dlq_stats = await dlq.stats()
-                if "length" in dlq_stats:
-                    dlq_size.set(dlq_stats["length"])
 
-                await bus.ack(s.stream_inbound, group=s.consumer_group, id=msg_id)
+                # Update DLQ size metric at most once every DLQ_STATS_INTERVAL_SEC
+                # to avoid two extra Redis round trips per event.
+                now_mono = asyncio.get_event_loop().time()
+                if now_mono - last_dlq_stats_at >= DLQ_STATS_INTERVAL_SEC:
+                    last_dlq_stats_at = now_mono
+                    dlq_stats = await dlq.stats()
+                    if "length" in dlq_stats:
+                        dlq_size.set(dlq_stats["length"])
+
+                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
     finally:
         if samsara_outbound:
             await samsara_outbound.close()
@@ -187,7 +205,9 @@ async def run() -> None:
         await r.aclose()
 
 
-async def _push_to_samsara(client: SamsaraOutboundClient, alert_event: dict) -> None:
+async def _push_to_samsara(
+    client: SamsaraOutboundClient, alert_event: MandalaEvent
+) -> None:
     """Push Mandala alerts back to Samsara.
     
     Creates Samsara alerts and updates custom fields for:

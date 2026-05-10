@@ -6,7 +6,6 @@ channels based on alert type, severity, and routing rules.
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 import httpx
@@ -152,46 +151,43 @@ class AlertRouter:
         if not s.alert_smtp_enabled:
             return
 
-        try:
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
 
-            # Build email
-            msg = MIMEMultipart()
-            msg["From"] = s.alert_smtp_from
-            msg["To"] = s.alert_smtp_to
-            msg["Subject"] = f"[Mandala {severity.upper()}] {event.type}"
+        # Build email (cheap, sync)
+        msg = MIMEMultipart()
+        msg["From"] = s.alert_smtp_from
+        msg["To"] = s.alert_smtp_to
+        msg["Subject"] = f"[Mandala {severity.upper()}] {event.type}"
 
-            # Email body
-            body = f"""
-Mandala Alert Detected
+        body = (
+            "Mandala Alert Detected\n\n"
+            f"Type: {event.type}\n"
+            f"Severity: {severity}\n"
+            f"Subject: {event.subject or 'unknown'}\n"
+            f"Reason: {data.get('reason', 'No reason provided')}\n"
+            f"Time: {event.time.isoformat() if event.time else 'unknown'}\n\n"
+        )
+        if data.get("truck_urn"):
+            body += f"Truck: {data['truck_urn']}\n"
+        if data.get("shipment_urn"):
+            body += f"Shipment: {data['shipment_urn']}\n"
+        if data.get("border_poe"):
+            body += f"Border POE: {data['border_poe']}\n"
+        msg.attach(MIMEText(body, "plain"))
 
-Type: {event.type}
-Severity: {severity}
-Subject: {event.subject or 'unknown'}
-Reason: {data.get('reason', 'No reason provided')}
-Time: {event.time.isoformat() if event.time else 'unknown'}
-
-"""
-            # Add optional fields
-            if data.get("truck_urn"):
-                body += f"Truck: {data['truck_urn']}\n"
-            if data.get("shipment_urn"):
-                body += f"Shipment: {data['shipment_urn']}\n"
-            if data.get("border_poe"):
-                body += f"Border POE: {data['border_poe']}\n"
-
-            msg.attach(MIMEText(body, "plain"))
-
-            # Send email
-            with smtplib.SMTP(s.alert_smtp_host, s.alert_smtp_port) as server:
+        def _send_sync() -> None:
+            with smtplib.SMTP(s.alert_smtp_host, s.alert_smtp_port, timeout=10) as server:
                 if s.alert_smtp_use_tls:
                     server.starttls()
                 if s.alert_smtp_user and s.alert_smtp_password:
                     server.login(s.alert_smtp_user, s.alert_smtp_password)
                 server.send_message(msg)
 
+        # Offload blocking SMTP I/O so the event loop is not stalled.
+        try:
+            await asyncio.to_thread(_send_sync)
             log.info(
                 "alert.routed.email",
                 alert_type=event.type,
@@ -201,7 +197,7 @@ Time: {event.time.isoformat() if event.time else 'unknown'}
         except Exception as exc:  # noqa: BLE001
             log.exception("alert.routing.email_failed", error=str(exc))
 
-    async def _route_to_pagerDuty(
+    async def _route_to_pagerduty(
         self, event: MandalaEvent, data: dict[str, Any], severity: str
     ) -> None:
         """Route alert to PagerDuty via Events API v2.

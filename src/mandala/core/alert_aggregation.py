@@ -6,8 +6,7 @@ Groups alerts by type, entity, and severity before routing.
 from __future__ import annotations
 
 import json
-from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -69,11 +68,12 @@ class AlertAggregator:
             agg_data["last_alert_at"] = datetime.now(UTC).isoformat()
             agg_data["alert_ids"].append(event.id)
 
-            # Update aggregation with new count
+            # Update aggregation with new count.
+            # redis-py SETEX signature: setex(name, time, value).
             await self._redis.setex(  # type: ignore[attr-defined]
                 key,
-                json.dumps(agg_data),
                 s.alert_aggregation_window_seconds,
+                json.dumps(agg_data),
             )
 
             log.debug(
@@ -94,10 +94,11 @@ class AlertAggregator:
                 "subject": event.subject,
             }
 
+            # redis-py SETEX signature: setex(name, time, value).
             await self._redis.setex(  # type: ignore[attr-defined]
                 key,
-                json.dumps(agg_data),
                 s.alert_aggregation_window_seconds,
+                json.dumps(agg_data),
             )
 
             # Route first alert immediately

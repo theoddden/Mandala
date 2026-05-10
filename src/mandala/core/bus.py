@@ -59,6 +59,18 @@ class EventBus(Protocol):
         """Yield ``(message_id, event)`` tuples from ``stream``."""
         ...
 
+    async def consume(
+        self,
+        stream: str,
+        *,
+        group: str,
+        consumer: str,
+        count: int = 32,
+        block_ms: int = 5000,
+    ) -> list[tuple[str, MandalaEvent]]:
+        """One-shot batched read; returns at most ``count`` events."""
+        ...
+
     async def ack(self, stream: str, group: str, message_id: str) -> None:
         ...
 
@@ -189,6 +201,57 @@ class RedisStreamsBus:
                         await self.ack(stream, group, msg_id)
                         continue
                     yield (msg_id if isinstance(msg_id, str) else msg_id.decode()), event
+
+    async def consume(
+        self,
+        stream: str,
+        *,
+        group: str,
+        consumer: str,
+        count: int = 32,
+        block_ms: int = 5000,
+    ) -> list[tuple[str, MandalaEvent]]:
+        """One-shot batched consume.
+
+        Wraps a single ``XREADGROUP`` call. Returns up to ``count`` decoded
+        ``(message_id, event)`` tuples; malformed messages are auto-acked and
+        skipped so they don't poison the consumer group.
+        """
+        await self._ensure_group(stream, group)
+        try:
+            resp = await self._redis.xreadgroup(  # type: ignore[attr-defined]
+                groupname=group,
+                consumername=consumer,
+                streams={stream: ">"},
+                count=count,
+                block=block_ms,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("redis.xreadgroup failed", stream=stream, group=group)
+            await asyncio.sleep(1)
+            return []
+
+        if not resp:
+            return []
+
+        out: list[tuple[str, MandalaEvent]] = []
+        for _stream_name, messages in resp:
+            for msg_id, fields in messages:
+                msg_id_s = msg_id if isinstance(msg_id, str) else msg_id.decode()
+                raw = fields.get(b"e") if isinstance(fields, dict) else fields.get("e")
+                if raw is None:
+                    await self.ack(stream, group, msg_id_s)
+                    continue
+                try:
+                    event = MandalaEvent.from_json(raw)
+                except Exception:
+                    log.exception("malformed event on stream", stream=stream, msg_id=msg_id_s)
+                    await self.ack(stream, group, msg_id_s)
+                    continue
+                out.append((msg_id_s, event))
+        return out
 
     async def ack(self, stream: str, group: str, message_id: str) -> None:
         await self._redis.xack(stream, group, message_id)  # type: ignore[attr-defined]

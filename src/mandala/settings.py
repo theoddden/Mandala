@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -73,7 +74,8 @@ class Settings(BaseSettings):
 
     # Alert suppression
     alert_suppression_enabled: bool = False
-    alert_suppression_windows: list[dict[str, str]] = []  # [{"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T06:00:00Z"}]
+    # [{"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T06:00:00Z"}]
+    alert_suppression_windows: list[dict[str, str]] = Field(default_factory=list)
 
     # Metrics (Prometheus)
     metrics_enabled: bool = False

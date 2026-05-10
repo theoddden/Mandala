@@ -42,18 +42,18 @@ class DeadLetterQueue:
             context: Context where failure occurred (e.g., "detector", "projection", "webhook")
             metadata: Additional metadata (e.g., detector name, webhook source)
         """
-        s = get_settings()
-        
+        from mandala.core.events.envelope import SCHEMA_VERSION
+
         # Convert event to dict if needed
         event_dict = event.to_dict() if isinstance(event, MandalaEvent) else event
-        
+
         dlq_entry = {
             "failed_at": datetime.now(UTC).isoformat(),
             "event": event_dict,
             "error": error,
             "context": context,
             "metadata": metadata or {},
-            "schema_version": s.state_ttl_seconds,  # Use settings as proxy for version
+            "schema_version": SCHEMA_VERSION,
         }
 
         try:
