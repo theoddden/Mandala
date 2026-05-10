@@ -80,13 +80,11 @@ class DeadLetterQueue:
     async def read(
         self,
         count: int = 100,
-        block_ms: int = 5000,
     ) -> list[dict[str, Any]]:
         """Read failed events from the dead letter queue.
 
         Args:
             count: Maximum number of entries to read
-            block_ms: Block time in milliseconds
 
         Returns:
             List of dead letter queue entries

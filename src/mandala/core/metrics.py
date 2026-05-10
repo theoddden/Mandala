@@ -136,15 +136,21 @@ rail_fetch_duration_seconds = Histogram(
 # Materialized view metrics
 view_apply_total = Counter(
     "mandala_view_apply_total",
-    "Total events applied to a materialized view",
-    ["view", "status"],  # status: success, failure
+    "Total number of view apply operations",
+    ["view", "status"]
 )
-
 view_apply_duration_seconds = Histogram(
     "mandala_view_apply_duration_seconds",
-    "Materialized view apply() duration in seconds",
+    "Time spent applying events to views",
     ["view"],
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+)
+
+# Consumer group lag metrics
+consumer_group_lag = Gauge(
+    "mandala_consumer_group_lag",
+    "Number of pending messages in consumer group",
+    ["stream", "group"]
 )
 
 

@@ -4,19 +4,10 @@ Answers the single most important cross-system question Mandala exists to
 answer — **"which trucks are at a border POE right now, and which of those
 don't yet have a released customs filing?"** — in O(bitmap-size / 8) via
 boolean set algebra instead of O(trucks × POEs) scans.
-
-Three bitmaps per POE:
-
-* ``mandala:view:bm:poe:<poe>:present`` — bit set while the truck is inside
-  the geofence (``TRUCK_GEOFENCE_ENTERED`` → SETBIT 1; exit → SETBIT 0).
-* ``mandala:view:bm:poe:<poe>:filed``   — bit set when the linked shipment
-  has customs status in {``filed``, ``released``}. Cleared on ``rejected``.
-
-Truck URNs → stable integer offsets via a Lua ``get-or-create`` so bitmap
-offsets are reused across restarts.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import structlog
@@ -157,11 +148,13 @@ class BitmapView(MaterializedView):
     async def at_poe_without_filing(self, poe: str) -> list[str]:
         """Bitmap AND NOT — trucks present at POE whose filing bit is 0."""
         # Use a temporary destination key to hold the AND NOT result.
-        tmp_key = f"mandala:view:bm:tmp:{_poe_key(poe)}:no_filing"
+        # Append a random suffix to avoid key collisions on concurrent queries.
+        suffix = uuid.uuid4().hex[:8]
+        tmp_key = f"mandala:view:bm:tmp:{_poe_key(poe)}:no_filing:{suffix}"
         # BITOP does not support NOT + AND in one call. Two steps:
         # 1) not_filed = NOT filed
         # 2) present_without_filing = present AND not_filed
-        not_filed_key = f"mandala:view:bm:tmp:{_poe_key(poe)}:not_filed"
+        not_filed_key = f"mandala:view:bm:tmp:{_poe_key(poe)}:not_filed:{suffix}"
         try:
             await self._r.bitop("NOT", not_filed_key, _filed_key(poe))  # type: ignore[attr-defined]
             await self._r.bitop(  # type: ignore[attr-defined]

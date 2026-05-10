@@ -47,11 +47,12 @@ def mcp() -> None:
 
 
 @main.command()
-def views() -> None:
+@click.option("--rebuild", is_flag=True, help="Delete and rebuild all materialized views before starting.")
+def views(rebuild: bool) -> None:
     """Run the materialized-views runner (geospatial / timeseries / bitmap / graph)."""
     from mandala.views.runner import main as views_main
 
-    views_main()
+    views_main(rebuild=rebuild)
 
 
 @main.command()

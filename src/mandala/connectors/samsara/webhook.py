@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
 from mandala.connectors.samsara.normalize import normalize
 from mandala.core.events.idempotency import hash_payload
-from mandala.core.hmac import verify_hmac_sha256
+from mandala.core.hmac import is_timestamp_fresh, verify_hmac_sha256
 from mandala.settings import get_settings
 
 log = structlog.get_logger(__name__)
@@ -25,6 +25,8 @@ router = APIRouter()
 async def ingest_samsara_webhook(
     request: Request,
     x_samsara_signature: str | None = Header(default=None, alias="X-Samsara-Signature"),
+    x_samsara_timestamp: str | None = Header(default=None, alias="X-Samsara-Timestamp"),
+    date_header: str | None = Header(default=None, alias="Date"),
 ) -> Response:
     settings = get_settings()
     body = await request.body()
@@ -38,6 +40,17 @@ async def ingest_samsara_webhook(
     ):
         log.warning("samsara.webhook.invalid_signature")
         raise HTTPException(status_code=401, detail="invalid signature")
+
+    # Anti-replay: reject payloads outside the configured timestamp window.
+    # Samsara sends X-Samsara-Timestamp (epoch seconds) on most webhooks; we
+    # fall back to the standard ``Date`` header for older signatures.
+    if settings.webhook_timestamp_tolerance_sec > 0:
+        ts = x_samsara_timestamp or date_header
+        if not is_timestamp_fresh(
+            ts, tolerance_sec=settings.webhook_timestamp_tolerance_sec
+        ):
+            log.warning("samsara.webhook.stale_timestamp", timestamp=ts)
+            raise HTTPException(status_code=401, detail="stale or missing timestamp")
 
     try:
         payload = json.loads(body)

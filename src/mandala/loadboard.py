@@ -20,7 +20,7 @@ Both stages are guarded:
 * If a board's credentials aren't configured, that board is skipped
   silently — Mandala degrades gracefully when only one is set up.
 * A per-truck debounce key prevents double-posting if the empty event is
-  re-emitted within the 24h posting window.
+  re-emitted within the 6h posting window.
 """
 from __future__ import annotations
 
@@ -234,11 +234,11 @@ async def post_to_loadboards(
     for board, result in results:
         if result.get("ok"):
             posting_id = result.get("posting_id")
-            
-            # Confirmation loop: verify posting was successful
-            confirmation_event = None
+
             if posting_id:
-                # Add confirmation metadata to posted event
+                # Note: This is not a confirmation loop — we trust the API response.
+                # A true confirmation would require a follow-up GET to verify the
+                # posting is live on the board, which is not implemented here.
                 out.append(
                     new_event(
                         type=EventType.LOADBOARD_POSTED,
@@ -253,8 +253,7 @@ async def post_to_loadboards(
                             "ttl_hours": s.loadboard_post_ttl_hours,
                             "radius_mi": s.loadboard_post_default_radius_mi,
                             "external_reference": external_ref,
-                            "confirmed": True,
-                            "confirmed_at": datetime.now(UTC).isoformat(),
+                            "posted_at": datetime.now(UTC).isoformat(),
                         },
                     )
                 )
@@ -283,7 +282,7 @@ async def post_to_loadboards(
                         {
                             "posting_id": posting_id,
                             "external_reference": external_ref,
-                            "confirmed_at": datetime.now(UTC).isoformat(),
+                            "posted_at": datetime.now(UTC).isoformat(),
                         },
                     )
         else:

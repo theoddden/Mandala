@@ -3,6 +3,10 @@
 Mandala does **not** own the source of truth — it remembers just enough
 to answer "do we know of a customs filing for this shipment?" and "which
 shipment is this truck linked to?". Everything is TTL'd.
+
+To support clearing fields (e.g., resetting ``customs_status`` from
+``hold`` to ``None``), pass the sentinel value ``STATE_DELETE`` as the
+value in the patch — the key will be removed from the stored object.
 """
 from __future__ import annotations
 
@@ -15,6 +19,10 @@ from mandala.settings import get_settings
 
 def _key(*parts: str) -> str:
     return ":".join(("mandala", *parts))
+
+
+# Sentinel value used to delete a key from a state object.
+STATE_DELETE = object()
 
 
 class StateStore:
@@ -37,7 +45,11 @@ class StateStore:
     # --- shipments / trucks ----------------------------------------------
     async def upsert(self, kind: str, urn: str, patch: dict[str, Any]) -> None:
         existing = await self._get_json(_key(kind, urn)) or {}
-        existing.update({k: v for k, v in patch.items() if v is not None})
+        for k, v in patch.items():
+            if v is STATE_DELETE:
+                existing.pop(k, None)
+            elif v is not None:
+                existing[k] = v
         await self._set_json(_key(kind, urn), existing)
 
     async def get(self, kind: str, urn: str) -> dict[str, Any] | None:

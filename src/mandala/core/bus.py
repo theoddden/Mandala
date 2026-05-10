@@ -83,17 +83,16 @@ class RedisStreamsBus:
 
     def __init__(self, redis: "object") -> None:
         self._redis = redis
-        self._dedupe_script_registered = False
+        self._dedupe_script_sha: str | None = None
 
     async def _ensure_dedupe_script(self) -> None:
         """Register the deduplication Lua script if not already registered."""
-        if self._dedupe_script_registered:
+        if self._dedupe_script_sha is not None:
             return
-        
+
         try:
-            await self._redis.script_load(DEDUPE_SCRIPT)  # type: ignore[attr-defined]
-            self._dedupe_script_registered = True
-            log.info("deduplication script registered")
+            self._dedupe_script_sha = await self._redis.script_load(DEDUPE_SCRIPT)  # type: ignore[attr-defined]
+            log.info("deduplication script registered", sha=self._dedupe_script_sha)
         except Exception as exc:  # noqa: BLE001
             log.exception("failed to register deduplication script", error=str(exc))
             raise
@@ -111,17 +110,29 @@ class RedisStreamsBus:
         # Check deduplication if enabled
         if enable_deduplication:
             await self._ensure_dedupe_script()
-            
+
             dedupe_key = f"mandala:idempotency:{event.mandalaidempotencykey}"
-            
-            # Execute deduplication script atomically
-            result = await self._redis.eval(
-                DEDUPE_SCRIPT,
-                1,  # number of keys
-                dedupe_key,
-                self.IDEMPOTENCY_TTL_SEC,  # TTL argument
-            )  # type: ignore[attr-defined]
-            
+
+            # Execute deduplication script atomically via EVALSHA with EVAL fallback.
+            # EVALSHA is faster (sends only SHA1 instead of full script body) but
+            # may fail with NOSCRIPT if Redis was restarted or script was flushed.
+            try:
+                result = await self._redis.evalsha(
+                    self._dedupe_script_sha,  # type: ignore[attr-defined]
+                    1,  # number of keys
+                    dedupe_key,
+                    self.IDEMPOTENCY_TTL_SEC,  # TTL argument
+                )
+            except Exception:  # noqa: BLE001
+                # Fallback to full EVAL on NOSCRIPT or other script-related errors.
+                log.debug("evalsha failed, falling back to eval")
+                result = await self._redis.eval(
+                    DEDUPE_SCRIPT,
+                    1,  # number of keys
+                    dedupe_key,
+                    self.IDEMPOTENCY_TTL_SEC,  # TTL argument
+                )  # type: ignore[attr-defined]
+
             # If result is 0, key already exists (duplicate event)
             if result == 0:
                 log.info(

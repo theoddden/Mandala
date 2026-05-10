@@ -2,6 +2,10 @@
 
 This is the only place that mutates :class:`StateStore`. Detectors and the
 MCP server read from it but never write.
+
+To prevent vendor payload bugs from corrupting state, each projection uses
+an explicit field allowlist. Only fields known to be safe are merged into
+the stored object.
 """
 from __future__ import annotations
 
@@ -28,50 +32,86 @@ _CUSTOMS_STATUS_EVENTS = {
     EventType.CUSTOMS_REJECTED.value: "rejected",
 }
 
+# Explicit field allowlists to prevent vendor payload bugs from corrupting state.
+_SHIPMENT_STATUS_FIELDS = {
+    "carrier_name",
+    "origin_address",
+    "destination_address",
+    "pickup_appointment",
+    "delivery_appointment",
+    "weight_lb",
+    "volume_cft",
+    "commodity",
+    "reference_number",
+    "bol_number",
+}
+
+_CUSTOMS_STATUS_FIELDS = {
+    "filing_number",
+    "filing_timestamp",
+    "port_of_entry",
+    "exam_type",
+    "hold_reason",
+}
+
+_TRUCK_POSITION_FIELDS = {
+    "last_position",
+    "last_seen_at",
+    "vin",
+    "license_plate",
+    "equipment_type",
+}
+
 
 async def project(event: MandalaEvent, state: StateStore) -> None:
     data = event.data if isinstance(event.data, dict) else {}
     subject = event.subject or ""
 
     if event.type in _SHIPMENT_STATUS_EVENTS and subject.startswith("urn:mandala:shipment:"):
-        await state.upsert(
-            "shipment",
-            subject,
-            {"status": _SHIPMENT_STATUS_EVENTS[event.type], **{k: v for k, v in data.items() if k != "status"}},
-        )
+        patch = {"status": _SHIPMENT_STATUS_EVENTS[event.type]}
+        for k in _SHIPMENT_STATUS_FIELDS:
+            if k in data and data[k] is not None:
+                patch[k] = data[k]
+        await state.upsert("shipment", subject, patch)
         await state.append_timeline(subject, {"type": event.type, "at": event.time.isoformat(), "data": data})
         return
 
     if event.type in _CUSTOMS_STATUS_EVENTS and subject.startswith("urn:mandala:shipment:"):
-        await state.upsert(
-            "shipment",
-            subject,
-            {"customs_status": _CUSTOMS_STATUS_EVENTS[event.type], **data},
-        )
+        patch = {"customs_status": _CUSTOMS_STATUS_EVENTS[event.type]}
+        for k in _CUSTOMS_STATUS_FIELDS:
+            if k in data and data[k] is not None:
+                patch[k] = data[k]
+        await state.upsert("shipment", subject, patch)
         await state.append_timeline(subject, {"type": event.type, "at": event.time.isoformat(), "data": data})
         return
 
     if event.type == EventType.SHIPMENT_ETA_UPDATED.value and subject.startswith("urn:mandala:shipment:"):
-        await state.upsert("shipment", subject, {"eta": data.get("eta")})
+        eta = data.get("eta")
+        if eta is not None:
+            await state.upsert("shipment", subject, {"eta": eta})
         return
 
     if event.type == EventType.TRUCK_POSITION.value and subject.startswith("urn:mandala:truck:"):
-        # Just keep last known position; full history lives in the warehouse.
         pos = data.get("position") or {}
         truck = data.get("truck") or {}
-        await state.upsert(
-            "truck",
-            subject,
-            {
-                "last_position": pos.get("point"),
-                "last_seen_at": pos.get("captured_at"),
-                "vin": truck.get("vin"),
-                "license_plate": truck.get("license_plate"),
-            },
-        )
+        patch = {
+            "last_position": pos.get("point"),
+            "last_seen_at": pos.get("captured_at"),
+            "vin": truck.get("vin"),
+            "license_plate": truck.get("license_plate"),
+            "equipment_type": truck.get("equipment_type"),
+        }
+        # Filter out None values
+        patch = {k: v for k, v in patch.items() if v is not None}
+        await state.upsert("truck", subject, patch)
 
     if event.type == EventType.SHIPMENT_HANDOFF.value:
         truck_urn = data.get("truck_urn")
         shipment_urn = data.get("shipment_urn") or subject
+        # Validate URN prefixes to prevent malformed events from creating bogus links
         if truck_urn and shipment_urn:
+            if not truck_urn.startswith("urn:mandala:truck:"):
+                return
+            if not shipment_urn.startswith("urn:mandala:shipment:"):
+                return
             await state.link(truck_urn, shipment_urn)

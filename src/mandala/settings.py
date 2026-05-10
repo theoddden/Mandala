@@ -13,9 +13,18 @@ class Settings(BaseSettings):
     # Infra
     redis_url: str = "redis://localhost:6379/0"
 
-    # Webhook HMAC secrets
-    samsara_webhook_secret: str = "dev-secret"
-    descartes_webhook_secret: str = "dev-secret"
+    # Webhook HMAC secrets.
+    # Defaults are intentionally empty so production deployments that forget
+    # to set MANDALA_*_WEBHOOK_SECRET fail closed (verify_hmac_sha256 returns
+    # False on empty secret) instead of accepting payloads signed with a
+    # well-known development value.
+    samsara_webhook_secret: str = ""
+    descartes_webhook_secret: str = ""
+
+    # Anti-replay window for webhook timestamps. Set to 0 to disable
+    # timestamp checking (NOT recommended in production — only useful for
+    # vendors that don't expose a timestamp header).
+    webhook_timestamp_tolerance_sec: int = 300
 
     # Outbound API credentials (optional)
     samsara_api_token: str = ""
@@ -25,7 +34,7 @@ class Settings(BaseSettings):
     descartes_macropoint_base_url: str = "https://api.macropoint.com"
 
     # CargoWise (WiseTech eAdaptor)
-    cargowise_webhook_secret: str = "dev-secret"
+    cargowise_webhook_secret: str = ""
     cargowise_eadaptor_url: str = ""
     cargowise_username: str = ""
     cargowise_password: str = ""

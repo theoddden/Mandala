@@ -10,6 +10,12 @@ from typing import Any
 
 import httpx
 import structlog
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from mandala.core.events.envelope import MandalaEvent
 from mandala.settings import get_settings
@@ -73,9 +79,17 @@ class AlertRouter:
         if not s.alert_slack_webhook_url:
             return
 
-        try:
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.RequestError)),
+            reraise=True,
+        )
+        async def _post_with_retry() -> httpx.Response:
             client = await self._get_client()
+            return await client.post(s.alert_slack_webhook_url, json=slack_payload)
 
+        try:
             # Map severity to Slack color
             color_map = {
                 "critical": "#ff0000",
@@ -125,7 +139,7 @@ class AlertRouter:
                     {"title": "Border POE", "value": data["border_poe"], "short": True}
                 )
 
-            response = await client.post(s.alert_slack_webhook_url, json=slack_payload)
+            response = await _post_with_retry()
             response.raise_for_status()
 
             log.info(
@@ -215,9 +229,20 @@ class AlertRouter:
         if severity not in ("critical", "high"):
             return
 
-        try:
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.RequestError)),
+            reraise=True,
+        )
+        async def _post_with_retry() -> httpx.Response:
             client = await self._get_client()
+            return await client.post(
+                "https://events.pagerduty.com/v2/enqueue",
+                json=pd_payload,
+            )
 
+        try:
             # Map Mandala severity to PagerDuty severity
             severity_map = {
                 "critical": "critical",
@@ -247,10 +272,7 @@ class AlertRouter:
                 },
             }
 
-            response = await client.post(
-                "https://events.pagerduty.com/v2/enqueue",
-                json=pd_payload,
-            )
+            response = await _post_with_retry()
             response.raise_for_status()
 
             log.info(

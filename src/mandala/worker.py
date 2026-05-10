@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+import time
 from datetime import datetime, timezone
 
 import redis.asyncio as redis
@@ -48,9 +49,26 @@ DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETEC
 log = structlog.get_logger(__name__)
 
 
+async def _probe_redis_version(redis: "object") -> str:
+    """Probe Redis server version at startup for feature detection."""
+    try:
+        info = await redis.info("server")  # type: ignore[attr-defined]
+        # redis-py returns dict; version is in info['redis_version']
+        version = info.get("redis_version", "unknown") if isinstance(info, dict) else "unknown"
+        log.info("redis_version_probe", version=version)
+        return str(version)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("redis_version_probe_failed", error=str(exc))
+        return "unknown"
+
+
 async def run() -> None:
     s = get_settings()
     r = redis.from_url(s.redis_url, decode_responses=False)
+
+    # Probe Redis version at startup for feature detection
+    await _probe_redis_version(r)
+
     bus = RedisStreamsBus(r)
     state = StateStore(r)
     dlq = DeadLetterQueue(r)
@@ -190,7 +208,7 @@ async def run() -> None:
 
                 # Update DLQ size metric at most once every DLQ_STATS_INTERVAL_SEC
                 # to avoid two extra Redis round trips per event.
-                now_mono = asyncio.get_event_loop().time()
+                now_mono = time.monotonic()
                 if now_mono - last_dlq_stats_at >= DLQ_STATS_INTERVAL_SEC:
                     last_dlq_stats_at = now_mono
                     dlq_stats = await dlq.stats()
