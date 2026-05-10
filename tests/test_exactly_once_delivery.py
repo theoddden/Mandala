@@ -16,19 +16,23 @@ from mandala.core.events.envelope import MandalaEvent, new_event
 @pytest.mark.asyncio
 async def test_idempotency_key_generation():
     """Test that idempotency keys are deterministic."""
+    # Same logical event (vendor, type, time, subject) must produce the same key.
+    fixed_time = datetime.now(UTC)
     event1 = new_event(
         type="mandala.truck.location",
         source="mandala/connector/samsara",
         subject="truck:12345",
         data={"truck_id": "12345", "latitude": 32.7157, "longitude": -117.1611},
     )
-    
+    event1.time = fixed_time
+
     event2 = new_event(
         type="mandala.truck.location",
         source="mandala/connector/samsara",
         subject="truck:12345",
         data={"truck_id": "12345", "latitude": 32.7157, "longitude": -117.1611},
     )
+    event2.time = fixed_time
     
     # Same event should produce same key
     key1 = event1.compute_idempotency_key()
@@ -79,11 +83,11 @@ async def test_duplicate_event_deduplication():
     
     # Publish first event
     msg_id1 = await bus.publish("test:stream", event1, enable_deduplication=True)
-    assert msg_id != ""  # Should succeed
-    
+    assert msg_id1 != ""  # Should succeed
+
     # Publish duplicate event
     msg_id2 = await bus.publish("test:stream", event2, enable_deduplication=True)
-    assert msg_id == ""  # Should be dropped (empty string indicates duplicate)
+    assert msg_id2 == ""  # Should be dropped (empty string indicates duplicate)
     
     # Cleanup
     await redis_client.delete("mandala:idempotency:" + key1)
@@ -117,11 +121,11 @@ async def test_deduplication_can_be_disabled():
     
     # Publish first event with deduplication enabled
     msg_id1 = await bus.publish("test:stream2", event1, enable_deduplication=True)
-    assert msg_id != ""
-    
+    assert msg_id1 != ""
+
     # Publish duplicate event with deduplication DISABLED
     msg_id2 = await bus.publish("test:stream2", event2, enable_deduplication=False)
-    assert msg_id != ""  # Should succeed (deduplication disabled)
+    assert msg_id2 != ""  # Should succeed (deduplication disabled)
     
     # Cleanup
     key = event1.compute_idempotency_key()
@@ -149,7 +153,7 @@ async def test_idempotency_key_ttl():
     
     # Publish event
     msg_id1 = await bus.publish("test:stream3", event, enable_deduplication=True)
-    assert msg_id != ""
+    assert msg_id1 != ""
     
     # Verify key exists in Redis
     ttl = await redis_client.ttl("mandala:idempotency:" + key)

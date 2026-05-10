@@ -47,6 +47,14 @@ def mcp() -> None:
 
 
 @main.command()
+def views() -> None:
+    """Run the materialized-views runner (geospatial / timeseries / bitmap / graph)."""
+    from mandala.views.runner import main as views_main
+
+    views_main()
+
+
+@main.command()
 @click.option("--root", default="./warehouse", show_default=True, help="Output directory for JSONL files.")
 def sink(root: str) -> None:
     """Run the warehouse sink — writes raw_mandala_events JSONL files for dbt-mandala."""

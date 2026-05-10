@@ -77,6 +77,15 @@ class Settings(BaseSettings):
     # [{"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T06:00:00Z"}]
     alert_suppression_windows: list[dict[str, str]] = Field(default_factory=list)
 
+    # Materialized views (CQRS read models — run via ``mandala views``)
+    views_enabled: bool = False
+    views_consumer_group: str = "mandala:views"
+    views_geospatial_enabled: bool = True
+    views_timeseries_enabled: bool = True
+    views_bitmap_enabled: bool = True
+    views_graph_enabled: bool = False  # requires RedisGraph/FalkorDB module
+    views_timeseries_ttl_seconds: int = 7 * 86_400  # 7 days of cold-chain readings
+
     # Metrics (Prometheus)
     metrics_enabled: bool = False
     metrics_port: int = 9090

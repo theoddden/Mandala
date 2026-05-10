@@ -92,13 +92,41 @@ async def tool_get_recent_alerts(limit: int = 50, severity: str | None = None) -
 
 
 async def tool_get_fleet_near_border(border_poe: str, radius_km: float = 50.0) -> dict[str, Any]:
-    """Best-effort: scan trucks in state, filter by simple substring match
-    against ``border_poe`` in their last_geofence and Haversine distance to
-    a curated POE coordinate (see ``BORDER_POE_COORDS``)."""
+    """Return trucks near a Port-of-Entry.
+
+    Prefers the geospatial materialized view (O(log N) ``GEOSEARCH``).
+    Falls back to a state-store scan + Haversine if the view is empty, so
+    this tool still works before ``mandala views`` has been run.
+    """
     from mandala.core.state import _key
+    from mandala.views.geospatial import GeospatialView
 
     state, r = await _state()
+    target = BORDER_POE_COORDS.get(border_poe.lower())
+    radius_mi = radius_km * 0.621371
     try:
+        # --- Fast path: geospatial view --------------------------------
+        if target is not None:
+            view = GeospatialView(r)
+            near = await view.trucks_near(
+                lat=target[0], lon=target[1], radius_mi=radius_mi, limit=200
+            )
+            if near:
+                return {
+                    "border_poe": border_poe,
+                    "radius_km": radius_km,
+                    "source": "geospatial_view",
+                    "trucks": [
+                        {
+                            "truck_urn": t["truck_urn"],
+                            "distance_km": round(t["distance_mi"] * 1.609344, 2),
+                            "last_seen_at": t.get("last_seen_at"),
+                        }
+                        for t in near
+                    ],
+                }
+
+        # --- Fallback: state-store scan (pre-view deployments) ---------
         keys = []
         cursor = 0
         while True:
@@ -107,7 +135,6 @@ async def tool_get_fleet_near_border(border_poe: str, radius_km: float = 50.0) -
             if cursor == 0:
                 break
         results: list[dict[str, Any]] = []
-        target = BORDER_POE_COORDS.get(border_poe.lower())
         for key in keys:
             urn = key.decode().split(":", 2)[-1] if isinstance(key, bytes) else key.split(":", 2)[-1]
             t = await state.get("truck", urn)
@@ -121,7 +148,61 @@ async def tool_get_fleet_near_border(border_poe: str, radius_km: float = 50.0) -
             if d <= radius_km:
                 results.append({"truck_urn": urn, "distance_km": round(d, 2), "last_seen_at": t.get("last_seen_at")})
         results.sort(key=lambda x: x["distance_km"])
-        return {"border_poe": border_poe, "radius_km": radius_km, "trucks": results}
+        return {
+            "border_poe": border_poe,
+            "radius_km": radius_km,
+            "source": "state_scan_fallback",
+            "trucks": results,
+        }
+    finally:
+        await r.aclose()
+
+
+async def tool_get_trucks_at_poe_without_filing(poe: str) -> dict[str, Any]:
+    """Return trucks physically present at a POE whose linked shipment has
+    no released customs filing. Backed by the bitmap materialized view —
+    O(bitmap-size / 8) via ``BITOP AND NOT``."""
+    from mandala.views.bitmap import BitmapView
+
+    state, r = await _state()
+    try:
+        view = BitmapView(r, state)
+        urns = await view.at_poe_without_filing(poe)
+        return {"poe": poe, "count": len(urns), "trucks": urns}
+    finally:
+        await r.aclose()
+
+
+async def tool_get_cold_chain_breaches(
+    since_hours: int = 24, limit: int = 100
+) -> dict[str, Any]:
+    """Return cold-chain breach events across the fleet within the last
+    ``since_hours`` hours. Backed by the timeseries materialized view."""
+    from datetime import UTC, datetime, timedelta
+
+    from mandala.views.timeseries import TimeseriesView
+
+    state, r = await _state()
+    try:
+        view = TimeseriesView(r)
+        since = (datetime.now(UTC) - timedelta(hours=since_hours)).timestamp()
+        breaches = await view.recent_breaches(since_epoch=since, limit=limit)
+        return {"since_hours": since_hours, "count": len(breaches), "breaches": breaches}
+    finally:
+        await r.aclose()
+
+
+async def tool_get_entity_neighbors(urn: str, depth: int = 2) -> dict[str, Any]:
+    """Multi-hop graph traversal from an entity URN. Requires the graph
+    view (RedisGraph / FalkorDB module). Returns an empty neighbor list if
+    the module is not available."""
+    from mandala.views.graph import GraphView
+
+    state, r = await _state()
+    try:
+        view = GraphView(r)
+        neighbors = await view.neighbors(urn, depth=depth)
+        return {"urn": urn, "depth": depth, "neighbors": neighbors}
     finally:
         await r.aclose()
 
@@ -218,6 +299,48 @@ def build_server():  # type: ignore[no-untyped-def]
                     "required": ["border_poe"],
                 },
             ),
+            Tool(
+                name="get_trucks_at_poe_without_filing",
+                description=(
+                    "Return trucks at a border Port-of-Entry that do not have a "
+                    "released customs filing on their linked shipment. Backed by "
+                    "the bitmap materialized view."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {"poe": {"type": "string"}},
+                    "required": ["poe"],
+                },
+            ),
+            Tool(
+                name="get_cold_chain_breaches",
+                description=(
+                    "Return cold-chain breach events across the fleet within the "
+                    "last N hours, ordered oldest → newest."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "since_hours": {"type": "integer", "default": 24},
+                        "limit": {"type": "integer", "default": 100},
+                    },
+                },
+            ),
+            Tool(
+                name="get_entity_neighbors",
+                description=(
+                    "Multi-hop graph traversal from a URN up to ``depth`` hops. "
+                    "Requires the RedisGraph/FalkorDB module; returns empty if absent."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "urn": {"type": "string"},
+                        "depth": {"type": "integer", "default": 2, "minimum": 1, "maximum": 5},
+                    },
+                    "required": ["urn"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -237,6 +360,18 @@ def build_server():  # type: ignore[no-untyped-def]
             result = await tool_get_fleet_near_border(
                 border_poe=arguments["border_poe"],
                 radius_km=float(arguments.get("radius_km", 50)),
+            )
+        elif name == "get_trucks_at_poe_without_filing":
+            result = await tool_get_trucks_at_poe_without_filing(poe=arguments["poe"])
+        elif name == "get_cold_chain_breaches":
+            result = await tool_get_cold_chain_breaches(
+                since_hours=int(arguments.get("since_hours", 24)),
+                limit=int(arguments.get("limit", 100)),
+            )
+        elif name == "get_entity_neighbors":
+            result = await tool_get_entity_neighbors(
+                urn=arguments["urn"],
+                depth=int(arguments.get("depth", 2)),
             )
         else:
             raise ValueError(f"unknown tool: {name}")

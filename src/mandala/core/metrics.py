@@ -133,6 +133,21 @@ rail_fetch_duration_seconds = Histogram(
 )
 
 
+# Materialized view metrics
+view_apply_total = Counter(
+    "mandala_view_apply_total",
+    "Total events applied to a materialized view",
+    ["view", "status"],  # status: success, failure
+)
+
+view_apply_duration_seconds = Histogram(
+    "mandala_view_apply_duration_seconds",
+    "Materialized view apply() duration in seconds",
+    ["view"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+)
+
+
 def start_metrics_server(port: int = 9090) -> None:
     """Start the Prometheus metrics HTTP server.
 
