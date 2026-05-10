@@ -126,7 +126,7 @@ Fully functional out of the box with **no commercial agreements**:
   current GPS position and equipment type. Disabled by default
   (`MANDALA_LOADBOARD_ENABLED=0`); requires partner credentials per board.
 - **MCP server** — read-only tools for querying shipments, trucks, customs status, alerts, and materialized views (geospatial, timeseries, bitmap, graph).
-- **dbt-mandala package** — staging + intermediate + 7 marts.
+- **dbt-mandala package** — staging + intermediate + 8 marts including `mandala_lane_intelligence`, which generates proprietary lane-level delay baselines from accumulated crossing history. After 90 days of operation, produces intelligence no vendor sells: crossing time distribution by POE, day of week, hour, carrier, and cargo type. This is what Project44 charges $200K/year to approximate from aggregated shipper data. Mandala generates it for free from your own events.
 - **Single Redis dependency.** No Postgres, no Kafka.
 
 Datamyne and Visual Compliance scaffolds exist but are stubs until
