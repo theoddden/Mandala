@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mandala-worker
+  namespace: mandala
+  labels:
+    app: mandala-worker
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: mandala-worker
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s

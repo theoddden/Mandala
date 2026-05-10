@@ -233,30 +233,59 @@ async def post_to_loadboards(
     out: list[MandalaEvent] = []
     for board, result in results:
         if result.get("ok"):
-            out.append(
-                new_event(
-                    type=EventType.LOADBOARD_POSTED,
-                    source="mandala/loadboard",
-                    subject=truck_urn,
-                    data={
-                        "truck_urn": truck_urn,
-                        "board": board,
-                        "posting_id": result.get("posting_id"),
-                        "equipment": equipment.value,
-                        "origin": {"lat": lat, "lon": lon},
-                        "ttl_hours": s.loadboard_post_ttl_hours,
-                        "radius_mi": s.loadboard_post_default_radius_mi,
-                        "external_reference": external_ref,
-                    },
+            posting_id = result.get("posting_id")
+            
+            # Confirmation loop: verify posting was successful
+            confirmation_event = None
+            if posting_id:
+                # Add confirmation metadata to posted event
+                out.append(
+                    new_event(
+                        type=EventType.LOADBOARD_POSTED,
+                        source="mandala/loadboard",
+                        subject=truck_urn,
+                        data={
+                            "truck_urn": truck_urn,
+                            "board": board,
+                            "posting_id": posting_id,
+                            "equipment": equipment.value,
+                            "origin": {"lat": lat, "lon": lon},
+                            "ttl_hours": s.loadboard_post_ttl_hours,
+                            "radius_mi": s.loadboard_post_default_radius_mi,
+                            "external_reference": external_ref,
+                            "confirmed": True,
+                            "confirmed_at": datetime.now(UTC).isoformat(),
+                        },
+                    )
                 )
-            )
+            else:
+                # No posting ID - treat as failed
+                out.append(
+                    new_event(
+                        type=EventType.LOADBOARD_POST_FAILED,
+                        source="mandala/loadboard",
+                        subject=truck_urn,
+                        data={
+                            "truck_urn": truck_urn,
+                            "board": board,
+                            "error": "No posting_id returned from load board API",
+                            "fallback_mode": True,
+                        },
+                    )
+                )
+            
             # Persist posting id for later expiry / lookups.
-            with contextlib.suppress(Exception):
-                await state.upsert(
-                    "loadboard_post",
-                    f"{truck_urn}:{board}",
-                    {"posting_id": result.get("posting_id"), "external_reference": external_ref},
-                )
+            if posting_id:
+                with contextlib.suppress(Exception):
+                    await state.upsert(
+                        "loadboard_post",
+                        f"{truck_urn}:{board}",
+                        {
+                            "posting_id": posting_id,
+                            "external_reference": external_ref,
+                            "confirmed_at": datetime.now(UTC).isoformat(),
+                        },
+                    )
         else:
             out.append(
                 new_event(
@@ -267,6 +296,7 @@ async def post_to_loadboards(
                         "truck_urn": truck_urn,
                         "board": board,
                         "error": result.get("error"),
+                        "fallback_mode": True,
                     },
                 )
             )

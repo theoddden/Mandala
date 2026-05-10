@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mandala-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mandala.labels" . | nindent 4 }}
+    app: mandala-worker
+spec:
+  replicas: {{ .Values.replicas.worker }}
+  selector:
+    matchLabels:
+      app: mandala-worker
+  template:
+    metadata:
+      labels:
+        {{- include "mandala.labels" . | nindent 8 }}
+        app: mandala-worker
+    spec:
+      containers:
+      - name: worker
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["mandala", "worker"]
+        ports:
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: MANDALA_REDIS_URL
+          value: {{ .Values.worker.env.redisUrl | quote }}
+        - name: MANDALA_SAMSARA_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: mandala-secrets
+              key: samsara-api-token
+        - name: MANDALA_SAMSARA_OUTBOUND_ENABLED
+          value: {{ .Values.worker.env.samsaraOutboundEnabled | quote }}
+        - name: MANDALA_ALERT_ROUTING_ENABLED
+          value: {{ .Values.worker.env.alertRoutingEnabled | quote }}
+        - name: MANDALA_ALERT_AGGREGATION_ENABLED
+          value: {{ .Values.worker.env.alertAggregationEnabled | quote }}
+        - name: MANDALA_METRICS_ENABLED
+          value: {{ .Values.monitoring.enabled | quote }}
+        - name: MANDALA_METRICS_PORT
+          value: "9090"
+        resources:
+          {{- toYaml .Values.worker.resources | nindent 10 }}

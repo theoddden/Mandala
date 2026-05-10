@@ -54,6 +54,31 @@ class Settings(BaseSettings):
     stream_inbound: str = "mandala:events"
     consumer_group: str = "mandala"
 
+    # Alert routing
+    alert_routing_enabled: bool = False
+    alert_slack_webhook_url: str = ""
+    alert_smtp_enabled: bool = False
+    alert_smtp_host: str = "smtp.gmail.com"
+    alert_smtp_port: int = 587
+    alert_smtp_use_tls: bool = True
+    alert_smtp_user: str = ""
+    alert_smtp_password: str = ""
+    alert_smtp_from: str = "mandala@yourdomain.com"
+    alert_smtp_to: str = "ops@yourdomain.com"
+    alert_pagerduty_routing_key: str = ""
+
+    # Alert aggregation
+    alert_aggregation_enabled: bool = False
+    alert_aggregation_window_seconds: int = 300  # 5 minutes
+
+    # Alert suppression
+    alert_suppression_enabled: bool = False
+    alert_suppression_windows: list[dict[str, str]] = []  # [{"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T06:00:00Z"}]
+
+    # Metrics (Prometheus)
+    metrics_enabled: bool = False
+    metrics_port: int = 9090
+
     # Misc
     log_level: str = "INFO"
     state_ttl_seconds: int = 14 * 86_400

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mandala-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mandala.labels" . | nindent 4 }}
+    app: mandala-api
+spec:
+  replicas: {{ .Values.replicas.api }}
+  selector:
+    matchLabels:
+      app: mandala-api
+  template:
+    metadata:
+      labels:
+        {{- include "mandala.labels" . | nindent 8 }}
+        app: mandala-api
+    spec:
+      containers:
+      - name: api
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: 8000
+        env:
+        - name: MANDALA_REDIS_URL
+          value: {{ .Values.api.env.redisUrl | quote }}
+        - name: MANDALA_SAMSARA_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: mandala-secrets
+              key: samsara-webhook-secret
+        - name: MANDALA_SAMSARA_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: mandala-secrets
+              key: samsara-api-token
+        - name: MANDALA_SAMSARA_OUTBOUND_ENABLED
+          value: {{ .Values.api.env.samsaraOutboundEnabled | quote }}
+        - name: MANDALA_ALERT_ROUTING_ENABLED
+          value: {{ .Values.api.env.alertRoutingEnabled | quote }}
+        - name: MANDALA_ALERT_AGGREGATION_ENABLED
+          value: {{ .Values.api.env.alertAggregationEnabled | quote }}
+        resources:
+          {{- toYaml .Values.api.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mandala-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mandala.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: mandala-api
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP

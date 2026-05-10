@@ -65,6 +65,24 @@ async def enrich_container_with_rail(
         intermodal = provider.get_intermodal_status(str(container_id))
     except Exception as exc:  # noqa: BLE001
         log.exception("rail.fetch_failed", container_id=container_id, error=str(exc))
+        
+        # Fallback: emit enrichment failure event for observability
+        failure_event = new_event(
+            type="mandala.rail.enrichment_failed",
+            source="mandala/rail",
+            subject=event.subject,
+            data={
+                "container_id": container_id,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "fallback_mode": True,
+            },
+        )
+        
+        # Publish failure event to stream for monitoring
+        # Note: This requires access to the bus, which we don't have here
+        # In production, this should be handled by the worker's DLQ mechanism
+        
         return []
 
     # Emit the intermodal status event

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: mandala
+description: Open-source event bridge between Samsara fleet telemetry and Descartes GLN customs/trade platforms
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - samsara
+  - logistics
+  - customs
+  - fleet
+  - telematics
+maintainers:
+  - name: Mandala Contributors

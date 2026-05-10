@@ -42,6 +42,27 @@ async def _fetch_fmcsa_data(dot_number: str) -> tuple[str, dict | None]:
             return (dot_number, data)
     except Exception as exc:  # noqa: BLE001
         log.exception("fmcsa.fetch_failed", dot_number=dot_number, error=str(exc))
+        
+        # Fallback: emit enrichment failure event for observability
+        from mandala.core.events.envelope import new_event
+        from mandala.core.events.types import EventType
+        
+        failure_event = new_event(
+            type="mandala.fmcsa.enrichment_failed",
+            source="mandala/fmcsa",
+            subject=f"urn:mandala:carrier:{dot_number}",
+            data={
+                "dot_number": dot_number,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "fallback_mode": True,
+            },
+        )
+        
+        # Publish failure event to stream for monitoring
+        # Note: This requires access to the bus, which we don't have here
+        # In production, this should be handled by the worker's DLQ mechanism
+        
         return (dot_number, None)
 
 

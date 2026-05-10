@@ -1,0 +1,20 @@
+{{- if .Values.monitoring.enabled }}
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mandala-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mandala.labels" . | nindent 4 }}
+    app: mandala-worker
+spec:
+  selector:
+    matchLabels:
+      app: mandala-worker
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}
+{{- end }}
