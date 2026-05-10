@@ -47,12 +47,37 @@ Mandala is an **event-sourced integration bridge** with a short-lived Redis proj
 |---|---|---|
 | `core/events/envelope.py` | CloudEvents 1.0 wrapper — the only internal data shape | 114 |
 | `core/bus.py` | Redis Streams pub/sub with consumer groups | 110 |
-| `core/state.py` | Redis-backed projection with TTL (14-day default) | 65 |
+| `core/state.py` | Redis-backed projection with TTL (14-day default) + field clearing via `STATE_DELETE` | 65 |
 
 **The pattern:**
 1. **Ingest** — webhook receives vendor payload → normalize to `MandalaEvent` → publish to Redis Stream
 2. **Process** — single worker reads stream → projects into `StateStore` → runs detectors → publishes alerts back to stream
 3. **Query** — MCP server reads from `StateStore` (read-only, no writes)
+
+### Materialized Views
+
+Mandala includes four read-optimized materialized views that subscribe to the event stream and maintain specialized data structures in Redis:
+
+| View | Purpose | Redis Data Structure |
+|---|---|---|
+| `GeospatialView` | Index truck positions for spatial queries (e.g., "trucks within 50km of POE") | GEO |
+| `TimeseriesView` | Index cold-chain readings with retention trimming | Sorted Set |
+| `BitmapView` | Track truck presence at POEs and customs filing status via bit operations | BITMAP |
+| `GraphView` | Project entity relationships (truck ↔ shipment ↔ carrier) into a graph | RedisGraph/FalkorDB (optional) |
+
+**Benefits:**
+- O(1) spatial queries instead of O(N) scans
+- Boolean set algebra for complex conditions (e.g., "trucks at POE without filing")
+- Time-series queries with automatic retention
+- Eventually consistent with the event stream
+
+**Usage:**
+```bash
+mandala views                    # Run views runner
+mandala views --rebuild          # Rebuild all views from scratch
+```
+
+Views run in a separate consumer group (`mandala:views`) so they never back up the detector pipeline.
 
 ## v0.1 scope
 
@@ -78,12 +103,11 @@ Fully functional out of the box with **no commercial agreements**:
 - **Cold-chain alerts** — temperature against the declared shipment
   range.
 - **Load-board auto-posting** (DAT + Truckstop, **opt-in**) — when a
-  delivery confirmation lands, Mandala emits `mandala.truck.empty` and
+  delivery lands, Mandala emits `mandala.truck.empty` and
   posts available capacity to every configured board with the truck's
   current GPS position and equipment type. Disabled by default
   (`MANDALA_LOADBOARD_ENABLED=0`); requires partner credentials per board.
-- **MCP server** — five read-only tools (`get_shipment`, `get_truck`,
-  `check_customs_status`, `get_recent_alerts`, `get_fleet_near_border`).
+- **MCP server** — read-only tools for querying shipments, trucks, customs status, alerts, and materialized views (geospatial, timeseries, bitmap, graph).
 - **dbt-mandala package** — staging + intermediate + 7 marts.
 - **Single Redis dependency.** No Postgres, no Kafka, no K8s.
 
@@ -158,6 +182,7 @@ MANDALA_VIZION_API_KEY=
 - Set `MANDALA_SAMSARA_WEBHOOK_SECRET` to a random string. This is the HMAC secret Samsara uses to sign webhooks. You'll configure the same value in Samsara's webhook UI.
 - Set `MANDALA_SAMSARA_API_TOKEN` to your Samsara API token (from Samsara Admin Console → API Tokens).
 - Set `MANDALA_SAMSARA_OUTBOUND_ENABLED=1` to push enrichment back to your Samsara dashboard (custom fields + alerts).
+- Webhook secrets default to empty strings for fail-closed security. Mandala validates HMAC signatures and timestamps to prevent replay attacks.
 
 ### Step 2: Start Mandala
 
@@ -434,14 +459,17 @@ If you need cross-vendor deduplication, implement it in your detector logic by q
 
 **Performance issues**
 - Add more worker processes: `docker compose up --scale worker=3`
+- Add views runner for read-optimized queries: `docker compose up --scale views=1`
 - Check Redis CPU/memory: `docker stats mandala-redis-1`
 - Consider AWS deployment for production (see Terraform module below)
+- Consumer-group lag metrics are published to Prometheus for monitoring
 
-## Three CLI commands. That's it.
+## Four CLI commands. That's it.
 
 ```bash
 mandala serve     # FastAPI webhook ingest
 mandala worker    # event loop: project + alert
+mandala views     # materialized views runner (geospatial / timeseries / bitmap / graph)
 mandala mcp       # MCP stdio server for LLMs
 ```
 
