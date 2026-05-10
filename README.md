@@ -127,7 +127,7 @@ Fully functional out of the box with **no commercial agreements**:
   (`MANDALA_LOADBOARD_ENABLED=0`); requires partner credentials per board.
 - **MCP server** — read-only tools for querying shipments, trucks, customs status, alerts, and materialized views (geospatial, timeseries, bitmap, graph).
 - **dbt-mandala package** — staging + intermediate + 7 marts.
-- **Single Redis dependency.** No Postgres, no Kafka, no K8s.
+- **Single Redis dependency.** No Postgres, no Kafka.
 
 Datamyne and Visual Compliance scaffolds exist but are stubs until
 commercial partnerships are in place. Mandala degrades gracefully — it
@@ -391,30 +391,6 @@ MANDALA_DAT_CLIENT_SECRET=
 MANDALA_TRUCKSTOP_INTEGRATION_ID=
 MANDALA_TRUCKSTOP_USERNAME=
 MANDALA_TRUCKSTOP_PASSWORD=
-```
-
-**Palantir Foundry** (ontology integration):
-
-```bash
-# Add to .env
-MANDALA_PALANTIR_ENABLED=1
-MANDALA_PALANTIR_API_URL=https://your-foundry.palantir.com
-MANDALA_PALANTIR_TOKEN=your-foundry-token
-
-# Start connector
-docker compose --profile palantir up -d
-```
-
-**Kinaxis Maestro** (disruption integration):
-
-```bash
-# Add to .env
-MANDALA_KINAXIS_ENABLED=1
-MANDALA_KINAXIS_API_URL=https://your-kinaxismaestro.kinaxis.com
-MANDALA_KINAXIS_API_KEY=your-kinaxis-api-key
-
-# Start connector
-docker compose --profile kinaxis up -d
 ```
 
 ### Step 10: Stop and Cleanup
