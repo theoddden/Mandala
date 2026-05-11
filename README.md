@@ -199,18 +199,20 @@ Cloud, or any OTLP backend.
 ## Hosting profiles
 
 Mandala is intentionally tiny. The minimum stack is **4 services,
-~300MB RAM** — fits on a $5/mo VPS. Everything else is opt-in via docker
+~350MB RAM** — fits on a $5/mo VPS. Everything else is opt-in via docker
 compose profiles.
 
 | Profile | Adds | RAM | Use case |
 |---|---|---|---|
-| (default) | redis, api, worker | ~300MB | Self-hosted, small fleet, <1k events/sec |
+| (default) | redis, nginx, api, worker | ~350MB | Self-hosted, small fleet, <1k events/sec |
+| `--profile ha` | redis-replica + 3x sentinel | +150MB | Self-hosted HA without AWS ElastiCache |
 | `--profile otel` | otel-collector | +50MB | Route spans to your APM (Honeycomb/Datadog/Tempo) |
 | `--profile traces` | otel-collector + jaeger | +250MB | Local trace browsing UI |
-| `--profile all` | both | ~600MB | Full local dev with trace visualization |
+| `--profile all` | ha + traces | ~750MB | Full local dev with HA and trace visualization |
 
 ```bash
-docker compose up                        # minimum
+docker compose up                        # minimum (nginx + rate limiting)
+docker compose --profile ha up           # +Redis Sentinel for HA
 docker compose --profile otel up         # +OTLP export
 docker compose --profile traces up       # +Jaeger UI
 docker compose --profile all up          # everything

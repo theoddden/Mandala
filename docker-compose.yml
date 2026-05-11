@@ -9,15 +9,6 @@ services:
       timeout: 3s
       retries: 5
 
-  redis-sentinel:
-    image: redis:7-alpine
-    command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
-    volumes:
-      - ./deploy/sentinel.conf:/etc/redis/sentinel.conf:ro
-    depends_on:
-      redis: { condition: service_healthy }
-    ports: ["26379:26379"]
-
   nginx:
     image: nginx:alpine
     ports: ["8000:80"]
@@ -46,6 +37,45 @@ services:
       MANDALA_SAMSARA_API_TOKEN: ${MANDALA_SAMSARA_API_TOKEN:-}
       MANDALA_SAMSARA_OUTBOUND_ENABLED: ${MANDALA_SAMSARA_OUTBOUND_ENABLED:-0}
       MANDALA_OTLP_ENDPOINT: ${MANDALA_OTLP_ENDPOINT:-}
+    depends_on:
+      redis: { condition: service_healthy }
+
+  # --- Optional: Redis HA with Sentinel (profile: ha) --------------------
+  # Adds a Redis replica and 3 Sentinel instances for automatic failover.
+  # For self-hosted operators who need HA without AWS ElastiCache.
+  #   docker compose --profile ha up
+  redis-replica:
+    profiles: ["ha"]
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1000", "--replicaof", "redis", "6379"]
+    volumes: [redis-replica-data:/data]
+    depends_on:
+      redis: { condition: service_healthy }
+
+  redis-sentinel-1:
+    profiles: ["ha"]
+    image: redis:7-alpine
+    command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+    volumes:
+      - ./deploy/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis: { condition: service_healthy }
+
+  redis-sentinel-2:
+    profiles: ["ha"]
+    image: redis:7-alpine
+    command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+    volumes:
+      - ./deploy/sentinel.conf:/etc/redis/sentinel.conf:ro
+    depends_on:
+      redis: { condition: service_healthy }
+
+  redis-sentinel-3:
+    profiles: ["ha"]
+    image: redis:7-alpine
+    command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+    volumes:
+      - ./deploy/sentinel.conf:/etc/redis/sentinel.conf:ro
     depends_on:
       redis: { condition: service_healthy }
 
@@ -79,3 +109,4 @@ services:
 
 volumes:
   redis-data:
+  redis-replica-data:
