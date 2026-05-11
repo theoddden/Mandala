@@ -425,8 +425,8 @@ Claude Desktop config (`~/.claude/claude_desktop_config.json`):
 ```
 
 Tools: `get_shipment`, `get_truck`, `check_customs_status`,
-`get_recent_alerts`, `get_fleet_near_border`, plus view-backed queries
-(`trucks_near_poe`, `cold_chain_breaches_last_24h`, etc.).
+`get_recent_alerts`, `get_fleet_near_border`, `get_trucks_at_poe_without_filing`,
+`get_cold_chain_breaches`, `get_entity_neighbors`.
 
 ### Step 8: (Optional) Additional connectors
 
