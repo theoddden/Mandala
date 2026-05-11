@@ -1,0 +1,219 @@
+"""Circuit breaker for external API calls.
+
+Prevents cascading failures by blocking calls to failing services.
+When a service fails repeatedly, the circuit opens and calls are rejected
+immediately without attempting the actual request. After a cooldown period,
+the circuit transitions to half-open state to test if the service has recovered.
+
+Usage:
+    from mandala.core.circuit_breaker import CircuitBreaker
+
+    breaker = CircuitBreaker(
+        name="samsara_api",
+        failure_threshold=5,
+        recovery_timeout=60,
+        expected_exception=Exception,
+    )
+
+    async with breaker:
+        result = await samsara_client.get_truck(truck_id)
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from dataclasses import dataclass
+from enum import Enum, auto
+from typing import Any, Callable, Type
+
+import structlog
+
+log = structlog.get_logger(__name__)
+
+
+class CircuitState(Enum):
+    """Circuit breaker states."""
+    CLOSED = auto()  # Normal operation, requests allowed
+    OPEN = auto()  # Circuit is open, requests rejected
+    HALF_OPEN = auto()  # Testing if service has recovered
+
+
+@dataclass
+class CircuitBreakerConfig:
+    """Configuration for circuit breaker."""
+    name: str
+    failure_threshold: int = 5  # Number of failures before opening
+    recovery_timeout: float = 60.0  # Seconds to wait before half-open
+    expected_exception: Type[Exception] = Exception  # Exception type to catch
+    success_threshold: int = 2  # Successes needed to close circuit
+
+
+class CircuitBreaker:
+    """Circuit breaker for external API calls."""
+
+    def __init__(
+        self,
+        name: str,
+        failure_threshold: int = 5,
+        recovery_timeout: float = 60.0,
+        expected_exception: Type[Exception] = Exception,
+        success_threshold: int = 2,
+    ) -> None:
+        self._config = CircuitBreakerConfig(
+            name=name,
+            failure_threshold=failure_threshold,
+            recovery_timeout=recovery_timeout,
+            expected_exception=expected_exception,
+            success_threshold=success_threshold,
+        )
+        self._state = CircuitState.CLOSED
+        self._failure_count = 0
+        self._success_count = 0
+        self._last_failure_time: float | None = None
+        self._lock = asyncio.Lock()
+
+    async def __aenter__(self) -> CircuitBreaker:
+        """Enter context manager - check circuit state."""
+        async with self._lock:
+            if self._state == CircuitState.OPEN:
+                # Check if recovery timeout has elapsed
+                if (
+                    self._last_failure_time
+                    and time.time() - self._last_failure_time > self._config.recovery_timeout
+                ):
+                    self._state = CircuitState.HALF_OPEN
+                    self._success_count = 0
+                    log.info(
+                        "circuit_breaker.half_open",
+                        name=self._config.name,
+                        recovery_timeout=self._config.recovery_timeout,
+                    )
+                else:
+                    raise CircuitBreakerOpenError(
+                        f"Circuit breaker '{self._config.name}' is OPEN. "
+                        f"Rejecting request to prevent cascading failure."
+                    )
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        """Exit context manager - record success or failure."""
+        async with self._lock:
+            if exc_type is not None and issubclass(exc_type, self._config.expected_exception):
+                # Failure occurred
+                self._failure_count += 1
+                self._last_failure_time = time.time()
+                self._success_count = 0
+
+                if self._failure_count >= self._config.failure_threshold:
+                    self._state = CircuitState.OPEN
+                    log.warning(
+                        "circuit_breaker.opened",
+                        name=self._config.name,
+                        failure_count=self._failure_count,
+                        threshold=self._config.failure_threshold,
+                    )
+                else:
+                    log.warning(
+                        "circuit_breaker.failure",
+                        name=self._config.name,
+                        failure_count=self._failure_count,
+                        threshold=self._config.failure_threshold,
+                    )
+            else:
+                # Success occurred
+                self._failure_count = 0
+                self._success_count += 1
+
+                if self._state == CircuitState.HALF_OPEN:
+                    if self._success_count >= self._config.success_threshold:
+                        self._state = CircuitState.CLOSED
+                        log.info(
+                            "circuit_breaker.closed",
+                            name=self._config.name,
+                            success_count=self._success_count,
+                        )
+                    else:
+                        log.info(
+                            "circuit_breaker.half_open_success",
+                            name=self._config.name,
+                            success_count=self._success_count,
+                            threshold=self._config.success_threshold,
+                        )
+
+    def get_state(self) -> CircuitState:
+        """Get current circuit state (thread-safe read)."""
+        return self._state
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get circuit breaker statistics."""
+        return {
+            "name": self._config.name,
+            "state": self._state.name,
+            "failure_count": self._failure_count,
+            "success_count": self._success_count,
+            "last_failure_time": self._last_failure_time,
+            "failure_threshold": self._config.failure_threshold,
+            "recovery_timeout": self._config.recovery_timeout,
+        }
+
+    async def reset(self) -> None:
+        """Manually reset the circuit breaker to CLOSED state."""
+        async with self._lock:
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
+            log.info("circuit_breaker.reset", name=self._config.name)
+
+
+class CircuitBreakerOpenError(Exception):
+    """Raised when circuit breaker is open and rejects a request."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class CircuitBreakerRegistry:
+    """Registry for circuit breakers - allows monitoring and management."""
+
+    def __init__(self) -> None:
+        self._breakers: dict[str, CircuitBreaker] = {}
+        self._lock = asyncio.Lock()
+
+    async def register(self, breaker: CircuitBreaker) -> None:
+        """Register a circuit breaker."""
+        async with self._lock:
+            self._breakers[breaker._config.name] = breaker
+            log.info("circuit_breaker.registered", name=breaker._config.name)
+
+    async def get(self, name: str) -> CircuitBreaker | None:
+        """Get a circuit breaker by name."""
+        async with self._lock:
+            return self._breakers.get(name)
+
+    async def get_all_stats(self) -> dict[str, dict[str, Any]]:
+        """Get statistics for all registered circuit breakers."""
+        async with self._lock:
+            return {name: breaker.get_stats() for name, breaker in self._breakers.items()}
+
+    async def reset_all(self) -> None:
+        """Reset all circuit breakers to CLOSED state."""
+        async with self._lock:
+            for breaker in self._breakers.values():
+                await breaker.reset()
+            log.info("circuit_breaker.all_reset", count=len(self._breakers))
+
+
+# Global registry instance
+_global_registry = CircuitBreakerRegistry()
+
+
+def get_global_registry() -> CircuitBreakerRegistry:
+    """Get the global circuit breaker registry."""
+    return _global_registry

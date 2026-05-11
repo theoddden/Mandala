@@ -87,7 +87,7 @@ class SamsaraClient:
             params: dict[str, Any] = {"limit": 100}
             if cursor:
                 params["after"] = cursor
-            resp = await self.request("GET", "/fleet/vehicles", params=params)
+            resp = await self.request("GET", "/v1/fleet/vehicles", params=params)
             body = resp.json()
             for v in body.get("data", []):
                 yield v
@@ -103,7 +103,7 @@ class SamsaraClient:
     ) -> list[dict[str, Any]]:
         resp = await self.request(
             "GET",
-            "/fleet/vehicles/locations/history",
+            "/v1/fleet/vehicles/locations/history",
             params={"startTime": start_time, "endTime": end_time},
         )
         return resp.json().get("data", [])
@@ -111,12 +111,12 @@ class SamsaraClient:
     async def send_driver_message(self, driver_id: str, text: str) -> dict[str, Any]:
         resp = await self.request(
             "POST",
-            "/fleet/messages",
+            "/v1/fleet/drivers/messages",
             json={"driverIds": [driver_id], "text": text},
         )
         return resp.json()
 
     async def list_addresses(self) -> list[dict[str, Any]]:
         """Samsara's term for geofences/named locations."""
-        resp = await self.request("GET", "/addresses")
+        resp = await self.request("GET", "/v1/addresses")
         return resp.json().get("data", [])

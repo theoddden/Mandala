@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import socket
 import time
 from datetime import datetime, timezone
@@ -50,6 +51,16 @@ DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETEC
 
 log = structlog.get_logger(__name__)
 
+# Global shutdown flag for graceful shutdown
+_shutdown_requested = False
+
+
+def _request_shutdown(signum, frame):
+    """Signal handler for graceful shutdown."""
+    global _shutdown_requested
+    _shutdown_requested = True
+    log.info("mandala.worker.shutdown_requested", signal=signum)
+
 
 async def _probe_redis_version(redis: "object") -> str:
     """Probe Redis server version at startup for feature detection."""
@@ -65,8 +76,16 @@ async def _probe_redis_version(redis: "object") -> str:
 
 
 async def run() -> None:
+    global _shutdown_requested
     s = get_settings()
-    r = redis.from_url(s.redis_url, decode_responses=False)
+    
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, _request_shutdown)
+    signal.signal(signal.SIGINT, _request_shutdown)
+    
+    # Use connection pool for better performance under high throughput
+    pool = redis.ConnectionPool.from_url(s.redis_url, decode_responses=False)
+    r = redis.Redis(connection_pool=pool)
 
     # Probe Redis version at startup for feature detection
     await _probe_redis_version(r)
@@ -123,17 +142,16 @@ async def run() -> None:
 
     # Concurrency limiter for batch processing (backpressure control)
     # Prevents unbounded in-flight work that could exhaust memory/connections
-    MAX_CONCURRENT_EVENTS = 50
-    event_semaphore = asyncio.Semaphore(MAX_CONCURRENT_EVENTS)
+    event_semaphore = asyncio.Semaphore(s.max_concurrent_events)
 
     try:
-        while True:
+        while not _shutdown_requested:
             messages = await bus.consume(
                 s.stream_inbound,
                 group=s.consumer_group,
                 consumer=consumer,
-                count=10,
-                block_ms=5000,
+                count=s.stream_batch_size,
+                block_ms=s.stream_block_ms,
             )
 
             if not messages:
@@ -280,6 +298,7 @@ async def run() -> None:
                 return_exceptions=True,
             )
     finally:
+        log.info("mandala.worker.shutdown", reason="signal_or_exception")
         if samsara_outbound:
             await samsara_outbound.close()
         await alert_router.close()
@@ -287,49 +306,58 @@ async def run() -> None:
         if proving_service:
             await proving_service.stop()
         await r.aclose()
+        log.info("mandala.worker.shutdown_complete")
 
 
 async def _push_to_samsara(
     client: SamsaraOutboundClient, alert_event: MandalaEvent
 ) -> None:
     """Push Mandala alerts back to Samsara.
-    
-    Creates Samsara alerts and updates custom fields for:
+
+    Sends driver messages and updates vehicle tags for:
     - Border crossing without customs filing
     - Cold chain breaches
-    - Carrier safety issues
     """
-    truck_id = alert_event.data.get("truck_id")
-    if not truck_id:
+    data = alert_event.data
+    truck_id = data.get("truck_id")
+    alert_type = data.get("alert_type")
+    severity = data.get("severity", "WARNING")
+
+    if not truck_id or not alert_type:
+        log.warning(
+            "samsara.push.missing_fields",
+            truck_id=truck_id,
+            alert_type=alert_type,
+        )
         return
-    
-    alert_type = alert_event.type
-    severity = alert_event.data.get("severity", "WARNING")
-    reason = alert_event.data.get("reason", "")
-    
-    # Map Mandala alert types to Samsara alert types
-    samsara_alert_type = "MANDALA_ENRICHMENT"
-    if "border" in alert_type:
-        samsara_alert_type = "CUSTOMS_COMPLIANCE"
-    elif "cold_chain" in alert_type:
-        samsara_alert_type = "COLD_CHAIN"
-    elif "carrier" in alert_type:
-        samsara_alert_type = "CARRIER_SAFETY"
-    
-    # Create alert in Samsara
-    await client.create_alert(
-        vehicle_id=truck_id,
-        alert_type=samsara_alert_type,
-        severity=severity,
-        message=f"Mandala Alert: {reason}",
-    )
-    
-    # Update custom field with alert status
-    await client.update_custom_field(
-        vehicle_id=truck_id,
-        field_id="mandala_alert_status",
-        value=f"{alert_type}:{severity}",
-    )
+
+    try:
+        # Send driver message with alert details
+        await client.send_driver_message(
+            driver_id=truck_id,
+            message=f"Mandala Alert ({severity}): {alert_type} - {data.get('message', '')}",
+        )
+
+        # Update vehicle tag with alert status
+        await client.update_vehicle_tag(
+            vehicle_id=truck_id,
+            tag_key="mandala_alert_status",
+            tag_value=f"{alert_type}:{severity}",
+        )
+
+        log.info(
+            "samsara.push.success",
+            truck_id=truck_id,
+            alert_type=alert_type,
+            severity=severity,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.error(
+            "samsara.push.failed",
+            truck_id=truck_id,
+            alert_type=alert_type,
+            error=str(exc),
+        )
 
 
 def main() -> None:

@@ -7,15 +7,18 @@ process which reads the same stream.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import Any
 
 import redis.asyncio as redis
 import structlog
 from fastapi import FastAPI
 
 from mandala import __version__
+from mandala.core.backpressure import BackpressureMiddleware
 from mandala.core.bus import RedisStreamsBus
 from mandala.core.events.envelope import SCHEMA_VERSION
 from mandala.core.events.idempotency import RedisIdempotencyStore
+from mandala.core.rate_limit import RateLimitMiddleware
 from mandala.settings import Settings, get_settings
 
 log = structlog.get_logger(__name__)
@@ -44,17 +47,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = s
 
+    # Add backpressure middleware to prevent overload
+    app.add_middleware(BackpressureMiddleware)
+    
+    # Add rate limiting middleware to prevent abuse
+    app.add_middleware(RateLimitMiddleware)
+
     @app.get("/healthz", tags=["meta"])
     async def healthz() -> dict[str, str]:
+        """Basic health check - always returns ok if process is running."""
         return {"status": "ok"}
 
     @app.get("/readyz", tags=["meta"])
-    async def readyz() -> dict[str, str]:
+    async def readyz() -> dict[str, Any]:
+        """Readiness check - verifies Redis connectivity and stream health."""
+        health_status: dict[str, Any] = {"status": "ready", "checks": {}}
+        
+        # Check Redis connectivity
         try:
             await app.state.redis.ping()
+            health_status["checks"]["redis"] = "ok"
         except Exception as exc:  # noqa: BLE001
-            return {"status": "degraded", "error": str(exc)}
-        return {"status": "ready"}
+            health_status["status"] = "not_ready"
+            health_status["checks"]["redis"] = f"failed: {str(exc)}"
+            return health_status
+        
+        # Check stream exists and is writable
+        try:
+            s = app.state.settings
+            # Try to read stream info
+            info = await app.state.redis.xinfo_stream(s.stream_inbound)  # type: ignore[attr-defined]
+            health_status["checks"]["stream"] = "ok"
+            health_status["checks"]["stream_length"] = info.get("length", 0)
+            health_status["checks"]["stream_groups"] = info.get("groups", 0)
+        except Exception as exc:  # noqa: BLE001
+            health_status["status"] = "not_ready"
+            health_status["checks"]["stream"] = f"failed: {str(exc)}"
+            return health_status
+        
+        return health_status
 
     @app.get("/version", tags=["meta"])
     async def version() -> dict[str, str]:

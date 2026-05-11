@@ -89,6 +89,23 @@ class Settings(BaseSettings):
     stream_inbound: str = "mandala:events"
     consumer_group: str = "mandala"
 
+    # Throughput tuning (defaults conservative for small fleets)
+    # Override these for high-volume deployments (1000+ trucks, high-frequency events)
+    stream_batch_size: int = Field(default=10, ge=1, le=10000, description="Events per XREADGROUP batch")
+    stream_block_ms: int = Field(default=5000, ge=0, le=60000, description="Block time in milliseconds for XREADGROUP")
+    max_concurrent_events: int = Field(default=50, ge=1, le=1000, description="Max events processed concurrently per worker")
+    stream_maxlen: int = Field(default=100_000, ge=1000, description="Max messages per Redis Stream (approximate)")
+
+    # Backpressure handling (reject new events when overloaded)
+    backpressure_enabled: bool = True
+    backpressure_threshold: int = Field(default=80_000, ge=0, le=1_000_000, description="Stream length threshold for backpressure (80% of maxlen by default)")
+    backpressure_response_code: int = Field(default=503, ge=400, le=599, description="HTTP status code when backpressure active")
+
+    # Rate limiting (prevent abuse and protect against webhook floods)
+    rate_limit_enabled: bool = True
+    rate_limit_requests_per_minute: int = Field(default=1000, ge=1, le=100_000, description="Max requests per minute per IP")
+    rate_limit_burst_size: int = Field(default=100, ge=1, le=10_000, description="Burst size for token bucket")
+
     # Alert routing
     alert_routing_enabled: bool = False
     alert_slack_webhook_url: str = ""

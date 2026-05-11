@@ -18,6 +18,7 @@ from typing import AsyncIterator, Protocol
 import structlog
 
 from mandala.core.events.envelope import MandalaEvent
+from mandala.settings import get_settings
 
 log = structlog.get_logger(__name__)
 
@@ -149,8 +150,9 @@ class RedisStreamsBus:
                 return ""
         
         # Publish to stream
+        s = get_settings()
         msg_id: str = await self._redis.xadd(  # type: ignore[attr-defined]
-            stream, {"e": event.to_json()}, maxlen=100_000, approximate=True
+            stream, {"e": event.to_json()}, maxlen=s.stream_maxlen, approximate=True
         )
         
         log.debug(
