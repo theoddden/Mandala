@@ -49,8 +49,8 @@ LLM agents.
   for bug fixes. See [Production reliability features](#production-reliability-features).
 - **High availability.** Redis Sentinel support with nginx rate limiting. HA profile
   adds redis-replica + 3x sentinel for self-hosted HA without AWS ElastiCache.
-- **Apache Iceberg event log.** Optional permanent event storage on object storage
-  (S3/GCS/Azure) separates ephemeral Redis Streams from durable event log.
+- **Apache Iceberg event log (optional).** Dual-write to external object storage
+  (S3/GCS/Azure) for permanent event logging. Disabled by default.
 - **Zero-Knowledge Proofs.** Privacy-preserving verification for insurance/customs/audits
   using ZK circuits for cold-chain breach proofs.
 - **Standalone Docker connectors.** Samsara and Descartes connectors can run as
@@ -286,18 +286,20 @@ redis.set(f"latch:{packet.source_id}", packet.event_time)
 - **For Audits:** Three-timestamp accounting (occurred_at, received_at, processed_at)
   provides proof of detection latency relative to event occurrence
 
-## Apache Iceberg Event Log
+## Apache Iceberg Event Log (Optional)
 
-Mandala supports dual-write to Apache Iceberg for permanent event storage.
-This separates the ephemeral Redis Streams bus from durable event log storage
-on object storage (S3, GCS, or Azure).
+Mandala can dual-write events to Apache Iceberg on external object storage
+(S3, GCS, or Azure). This is optional and disabled by default. Mandala itself
+has zero storage - it's a pure event bridge.
 
 When enabled, every event published to the Redis Stream is also written to
-Iceberg in the background (non-blocking). This provides:
+Iceberg in the background (non-blocking). The storage is external to Mandala
+and managed by your infrastructure.
 
+Use cases:
 - Permanent event log for audit and compliance
 - Event replay for bug fixes and state correction
-- Decoupling of real-time processing from long-term storage
+- Integration with downstream warehouse pipelines
 
 Configuration:
 
