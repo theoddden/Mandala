@@ -113,6 +113,9 @@ class MandalaEvent(BaseModel):
     parent_span_id: str | None = Field(default=None, description="Causal parent span (e.g. detector → emitted event)")
     end_time: datetime | None = Field(default=None, description="Span end time for events with duration (vessel transit, customs hold)")
     attributes: dict[str, Any] = Field(default_factory=dict, description="OTel span attributes (logistics.* semantic conventions)")
+    # --- Deterministic Event-Time Windowing (Feature 3) --------------------
+    geometric_hash: str | None = Field(default=None, description="Geometric hash (H3/S2) for spatial idempotency and event-time determinism")
+    delta_t_vector: dict[str, Any] | None = Field(default=None, description="Vector of Delta-T for trajectory analysis (delta_t_seconds, hash_changed, velocity_mps)")
     # --- Payload ----------------------------------------------------------
     data: Any = None
 

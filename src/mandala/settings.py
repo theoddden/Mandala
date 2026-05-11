@@ -186,6 +186,30 @@ class Settings(BaseSettings):
     zk_verification_key: str = "/opt/mandala/zk/keys/cold_chain_breach.vk"
     zk_remote_verifier_endpoint: str = ""
 
+    # --- Deterministic Event-Time Windowing (Feature 3) ---
+    # Geometric Idempotency and Stator's Latch for out-of-order telemetry
+    event_time_determinism_enabled: bool = True
+    
+    # Geometric hashing configuration
+    geometric_hash_provider: str = "h3"  # h3, s2, or none
+    geometric_hash_resolution: int = 9  # H3: 0-15, S2: 0-30, Geohash: 1-12
+    
+    # Stator's Latch configuration
+    stator_latch_enabled: bool = True
+    stator_latch_ttl_seconds: int = 14 * 86_400  # 14 days
+    stator_latch_tolerance_seconds: int = 1  # Duplicate detection tolerance
+    
+    # Re-ordering Buffer configuration
+    reorder_buffer_enabled: bool = True
+    reorder_buffer_max_events_per_entity: int = 100
+    reorder_buffer_max_wait_seconds: int = 300  # 5 minutes
+    reorder_buffer_expire_seconds: int = 3600  # 1 hour
+    reorder_buffer_check_interval_seconds: float = 5.0
+    
+    # Spatial coherence checks
+    spatial_coherence_enabled: bool = True
+    max_velocity_mps: float = 150.0  # ~335 mph, generous for trucks
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

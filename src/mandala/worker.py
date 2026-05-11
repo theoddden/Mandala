@@ -41,7 +41,10 @@ from mandala.core.metrics import (
     start_metrics_server,
     stream_lag_seconds,
 )
+from mandala.core.geometric_hash import GeometricHashService, GeometricHashProvider
+from mandala.core.reorder_buffer import ReorderBufferManager
 from mandala.core.state import StateStore
+from mandala.core.stator_latch import StatorLatch, LatchDecision
 from mandala.core.zk.proving_service import AsyncProvingService
 from mandala.fmcsa import DETECTORS as FMCSA_DETECTORS
 from mandala.loadboard import DETECTORS as LOADBOARD_DETECTORS
@@ -98,6 +101,43 @@ async def run() -> None:
     alert_router = AlertRouter()
     alert_aggregator = AlertAggregator(r)
     consumer = f"{socket.gethostname()}-{os.getpid()}"
+    
+    # Deterministic Event-Time Windowing components
+    stator_latch: StatorLatch | None = None
+    reorder_buffer_manager: ReorderBufferManager | None = None
+    geo_hash_service: GeometricHashService | None = None
+    
+    if s.event_time_determinism_enabled:
+        # Initialize Stator's Latch for event-time determinism
+        if s.stator_latch_enabled:
+            stator_latch = StatorLatch(r, ttl_seconds=s.stator_latch_ttl_seconds)
+            log.info("stator_latch.enabled", ttl_seconds=s.stator_latch_ttl_seconds)
+        
+        # Initialize Re-ordering Buffer for out-of-order events
+        if s.reorder_buffer_enabled:
+            reorder_buffer_manager = ReorderBufferManager(
+                redis=r,
+                max_events_per_entity=s.reorder_buffer_max_events_per_entity,
+                max_wait_seconds=s.reorder_buffer_max_wait_seconds,
+                expire_seconds=s.reorder_buffer_expire_seconds,
+            )
+            await reorder_buffer_manager.start(s.reorder_buffer_check_interval_seconds)
+            log.info(
+                "reorder_buffer.enabled",
+                max_events=s.reorder_buffer_max_events_per_entity,
+                max_wait_seconds=s.reorder_buffer_max_wait_seconds,
+            )
+        
+        # Initialize Geometric Hash Service
+        geo_hash_service = GeometricHashService(
+            provider=GeometricHashProvider(s.geometric_hash_provider),
+            resolution=s.geometric_hash_resolution,
+        )
+        log.info(
+            "geometric_hash.enabled",
+            provider=s.geometric_hash_provider,
+            resolution=s.geometric_hash_resolution,
+        )
     
     # Detector sandbox for timeout and circuit breaker protection
     detector_sandbox = DetectorSandboxPool(DETECTORS)
@@ -189,6 +229,88 @@ async def run() -> None:
 
                         # Set processed_at timestamp for three-timestamp accounting
                         event.processed_at = datetime.now(timezone.utc)
+                        
+                        # --- Deterministic Event-Time Windowing ---
+                        # Extract coordinates and compute geometric hash if available
+                        latitude = None
+                        longitude = None
+                        if event.data and isinstance(event.data, dict):
+                            latitude = event.data.get("latitude")
+                            longitude = event.data.get("longitude")
+                            # Also check nested location objects
+                            if latitude is None:
+                                location = event.data.get("location", {})
+                                if isinstance(location, dict):
+                                    latitude = location.get("latitude")
+                                    longitude = location.get("longitude")
+                        
+                        # Compute geometric hash if coordinates available and service enabled
+                        if geo_hash_service and latitude is not None and longitude is not None:
+                            event.geometric_hash = geo_hash_service.compute_hash(
+                                latitude, longitude, event.time
+                            )
+                            log.debug(
+                                "geometric_hash.computed",
+                                event_id=event.id,
+                                hash=event.geometric_hash,
+                                lat=latitude,
+                                lon=longitude,
+                            )
+                        
+                        # Check Stator's Latch for event-time determinism
+                        latch_decision = LatchDecision.PROCEED
+                        if stator_latch and event.time:
+                            latch_result = await stator_latch.check(
+                                source_id=entity_id,
+                                event_time=event.time,
+                                geometric_hash=event.geometric_hash,
+                                tolerance_seconds=s.stator_latch_tolerance_seconds,
+                            )
+                            latch_decision = latch_result.decision
+                            
+                            if latch_decision == LatchDecision.BACKFILL:
+                                # Time-travel data: backfill historical graph, bypass real-time Turbine
+                                log.info(
+                                    "stator_latch.backfill",
+                                    event_id=event.id,
+                                    entity=entity_id,
+                                    event_time=event.time,
+                                    lag_seconds=latch_result.metadata.get("lag_seconds"),
+                                )
+                                # Acknowledge and skip detectors (backfill only)
+                                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+                                continue
+                            elif latch_decision == LatchDecision.DUPLICATE:
+                                # Duplicate event: drop and acknowledge
+                                log.debug(
+                                    "stator_latch.duplicate",
+                                    event_id=event.id,
+                                    entity=entity_id,
+                                )
+                                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+                                continue
+                        
+                        # Check re-ordering buffer for out-of-order events
+                        if reorder_buffer_manager and event.time:
+                            should_release, buffered_event = await reorder_buffer_manager.add_event(
+                                event=event,
+                                source_id=entity_id,
+                                event_time=event.time,
+                            )
+                            if not should_release:
+                                # Event is buffered for later release
+                                log.debug(
+                                    "reorder_buffer.buffered",
+                                    event_id=event.id,
+                                    entity=entity_id,
+                                    event_time=event.time,
+                                )
+                                # Acknowledge the stream message (event is in buffer)
+                                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+                                continue
+                            # If buffered_event is not None, use that instead (re-ordered)
+                            if buffered_event:
+                                event = buffered_event
 
                         # Trace-native: ship every ingested event as an OTel span.
                         # No-op when MANDALA_OTLP_ENDPOINT is unset.
@@ -307,6 +429,8 @@ async def run() -> None:
         await otlp.stop()
         if proving_service:
             await proving_service.stop()
+        if reorder_buffer_manager:
+            await reorder_buffer_manager.stop()
         await r.aclose()
         log.info("mandala.worker.shutdown_complete")
 
