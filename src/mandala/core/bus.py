@@ -76,14 +76,18 @@ class EventBus(Protocol):
 
 
 class RedisStreamsBus:
-    """Production :class:`EventBus` backed by Redis Streams + consumer groups."""
+    """Production :class:`EventBus` backed by Redis Streams + consumer groups.
+    
+    Supports dual-write to Iceberg for permanent event log storage.
+    """
 
     # 14-day TTL for idempotency keys (matches StateStore TTL)
     IDEMPOTENCY_TTL_SEC = 14 * 24 * 60 * 60  # 14 days in seconds
 
-    def __init__(self, redis: "object") -> None:
+    def __init__(self, redis: "object", event_log: "EventLog | None" = None) -> None:
         self._redis = redis
         self._dedupe_script_sha: str | None = None
+        self._event_log = event_log  # Optional Iceberg event log for dual-write
 
     async def _ensure_dedupe_script(self) -> None:
         """Register the deduplication Lua script if not already registered."""
@@ -157,7 +161,20 @@ class RedisStreamsBus:
             idempotency_key=event.mandalaidempotencykey,
         )
         
+        # Dual-write to Iceberg if configured (fire-and-forget, non-blocking)
+        if self._event_log:
+            asyncio.create_task(self._append_to_event_log(event))
+        
         return msg_id
+    
+    async def _append_to_event_log(self, event: MandalaEvent) -> None:
+        """Append event to Iceberg event log (background task)."""
+        try:
+            await self._event_log.append(event)
+            log.debug("event appended to iceberg log", event_id=event.id)
+        except Exception:
+            log.exception("iceberg append failed", event_id=event.id, event_type=event.type)
+            # Iceberg failures don't block the event pipeline
 
     async def _ensure_group(self, stream: str, group: str) -> None:
         try:

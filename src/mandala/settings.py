@@ -136,6 +136,25 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     state_ttl_seconds: int = 14 * 86_400
 
+    # --- Apache Iceberg Event Log (Feature 1) ---
+    # Permanent event storage on object storage (S3/GCS/Azure)
+    # Separates ephemeral Redis Streams bus from permanent Iceberg log
+    event_log_enabled: bool = False
+    iceberg_catalog: str = "rest"  # rest, glue, hive, sql
+    iceberg_catalog_uri: str = "http://localhost:8181"
+    iceberg_warehouse: str = "s3://mandala-events/"
+    iceberg_table: str = "mandala.events"
+    iceberg_namespace: str = "mandala"
+
+    # --- Zero-Knowledge Proofs (Feature 2) ---
+    # Privacy-preserving verification for insurance/customs/audits
+    zk_enabled: bool = False
+    zk_max_concurrent_proofs: int = 4
+    zk_circuit_path: str = "/opt/mandala/zk/circuits/"
+    zk_proving_key: str = "/opt/mandala/zk/keys/cold_chain_breach.pk"
+    zk_verification_key: str = "/opt/mandala/zk/keys/cold_chain_breach.vk"
+    zk_remote_verifier_endpoint: str = ""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

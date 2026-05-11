@@ -40,7 +40,7 @@ class AlertRouter:
             self._http_client = None
 
     async def route(self, event: MandalaEvent) -> None:
-        """Route an alert event to configured notification channels.
+        """Route an alert event to configured notification channels in parallel.
 
         Args:
             event: Mandala alert event to route
@@ -53,17 +53,24 @@ class AlertRouter:
         alert_type = event.type
         severity = data.get("severity", "unknown")
 
+        # Route to all configured channels in parallel (4th-gen optimization)
+        # Alert routing latency drops from sum(channels) to max(channels)
+        routing_tasks = []
+
         # Route to Slack if configured
         if s.alert_slack_webhook_url:
-            await self._route_to_slack(event, data, severity)
+            routing_tasks.append(self._route_to_slack(event, data, severity))
 
         # Route to Email if configured
         if s.alert_smtp_enabled:
-            await self._route_to_email(event, data, severity)
+            routing_tasks.append(self._route_to_email(event, data, severity))
 
         # Route to PagerDuty if configured
         if s.alert_pagerduty_routing_key:
-            await self._route_to_pagerduty(event, data, severity)
+            routing_tasks.append(self._route_to_pagerduty(event, data, severity))
+
+        if routing_tasks:
+            await asyncio.gather(*routing_tasks, return_exceptions=True)
 
     async def _route_to_slack(
         self, event: MandalaEvent, data: dict[str, Any], severity: str
