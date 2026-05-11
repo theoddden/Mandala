@@ -80,6 +80,7 @@ async def ingest_samsara_webhook(
         if not await idempotency.claim(key, ttl_seconds=86_400):
             log.info("samsara.webhook.duplicate", key=key, type=event.type)
             continue
+
         await bus.publish(stream, event)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

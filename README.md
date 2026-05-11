@@ -158,14 +158,6 @@ Mandala supports configurable Port-of-Entry (POE) geofences for cross-border ope
 
 POE geofences are configured via the `MANDALA_POE_GEOFENCES` environment variable (see `.env.example` for examples). This provides real-time visibility into border crossings for any POE (US-Mexico, US-Canada, or any other border region), enabling cross-border control towers and automated border capacity management.
 
-**GS1 EPCIS 2.0 and IOF SCRO standards compliance:**
-Mandala includes an EPCIS 2.0 adapter (src/mandala/connectors/epcis/) that emits
-MandalaEvents in EPCIS 2.0 JSON format, making Mandala compatible with every
-GS1 EPCIS subscriber globally. See docs/standards/epcis.md for the EPCIS
-integration pattern. Mandala also includes IOF Supply Chain Reference Ontology
-(SCRO) alignment (docs/standards/iof-mapping.md), making Mandala an academically
-defensible reference implementation for supply chain operations.
-
 Mandala degrades gracefully — it must be useful with **only** Samsara configured.
 
 ## Install

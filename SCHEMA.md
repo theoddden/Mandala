@@ -63,6 +63,8 @@ urn:mandala:<entity>:<scope>:<id>
 | `bol` | `descartes`, `internal` | `urn:mandala:bol:descartes:BOL-987654` |
 | `customs-entry` | `cbp`, `cbsa`, `sat` | `urn:mandala:customs-entry:cbp:316-1234567-9` |
 | `party` | scope is the originating system | `urn:mandala:party:samsara-driver:42` |
+| `chassis` | chassis owner SCAC | `urn:mandala:chassis:DCLI:CHS-123456` |
+| `cargo` | derived, never changes | `urn:mandala:cargo:{sha256(origin_bol + origin_scac + load_date)}` |
 
 URN parts are case-sensitive. The `id` segment may contain `:` characters;
 parsers must split on the first three colons only.
@@ -83,6 +85,7 @@ forwarded unchanged, never rejected.
 | `mandala.truck.eta.updated` | `truck` URN | `{ truck_id, eta, source }` |
 | `mandala.truck.harsh_event.detected` | `truck` URN | `{ truck_id, behavior, g_force, occurred_at }` |
 | `mandala.truck.fuel.low` | `truck` URN | `{ truck_id, fuel_pct, threshold }` |
+| `mandala.truck.fueled` | `truck` URN | `FuelTransaction` |
 | `mandala.truck.door.opened` | `truck` URN | `{ truck_id, door_id, occurred_at }` |
 
 ### Cold chain
@@ -114,6 +117,7 @@ forwarded unchanged, never rejected.
 | `mandala.shipment.cancelled` | `shipment` URN | reason |
 | `mandala.shipment.eta.updated` | `shipment` URN | eta, source |
 | `mandala.shipment.handoff.confirmed` | `shipment` URN | truck_urn, shipment_urn |
+| `mandala.shipment.transloaded` | `shipment` URN | container_id, new_vehicle_id, transload_facility_firms, occurred_at, cargo_weight, cargo_units, new_carrier_scac |
 
 ### Customs
 
@@ -124,6 +128,18 @@ forwarded unchanged, never rejected.
 | `mandala.shipment.customs.exam` | `shipment` URN | authority, exam_type |
 | `mandala.shipment.customs.released` | `shipment` URN | authority, released_at |
 | `mandala.shipment.customs.rejected` | `shipment` URN | authority, reason |
+
+### Custody transfer
+
+| Type | Subject | `data` includes |
+|---|---|---|
+| `mandala.custody.transfer` | `cargo` URN | cargo_urn, from_custodian, to_custodian, surrender_confirmed_at, acceptance_confirmed_at, occurred_at, condition, seal_number, bol_number |
+
+The custody transfer event captures the legal moment of liability shift between custodians (terminal → truck, transload facility → flatbed, etc.). Four timestamps provide a complete audit trail:
+- `surrender_confirmed_at` — when the old custodian released custody
+- `acceptance_confirmed_at` — when the new custodian accepted custody
+- `occurred_at` — midpoint for legal purposes (digital interchange receipt)
+- `time` (envelope) — when Mandala processed the event
 
 ### Bills of lading
 
@@ -227,6 +243,49 @@ Pydantic `BaseModel`; the JSON serialization is the canonical wire form.
 - The Python library version exporting the schema can be checked at
   runtime: `mandala.core.events.envelope.SCHEMA_VERSION`.
 - The MCP server tools return the same canonical objects, JSON-serialized.
+
+## State store indexes
+
+The Mandala state store maintains reverse lookup indexes to answer "where is my cargo" questions across entity handoffs:
+
+| Index key | Value | Purpose |
+|---|---|---|
+| `mandala:link:vehicle:{new_vehicle_id}` | `{ shipment_id, container_id }` | Maps any downstream vehicle (truck VIN, trailer number, domestic BOL) back to its origin shipment and container. Enables answering "where is cargo from container MSCU1234567?" after transload when the container is no longer the active vehicle. |
+| `mandala:link:chassis:{chassis_number}` | `{ container_id, paired_at }` | Maps a chassis to the container currently riding on it. Enables detecting chassis shortages at terminals when containers are available but no chassis are paired. |
+| `mandala:link:cargo:{cargo_urn}` | `{ current_custodian, container_id, truck_id, trailer_id, chassis_id }` | Maps a cargo identity to all its current custodians. The cargo URN is the persistent anchor; container, chassis, truck, and trailer are transient custodians that change over time. |
+
+These indexes are materialized from events:
+- `mandala.shipment.transloaded` writes the vehicle_to_shipment link
+- Terminal pairing events (operator POSTs) write the chassis_to_container link
+- `mandala.custody.transfer` updates the cargo custodian graph
+
+## Cargo identity graph
+
+Mandala tracks cargo itself as a persistent entity that survives every vehicle change. The cargo URN is generated at first Mandala event and never changes:
+
+```
+urn:mandala:cargo:{sha256(origin_bol + origin_scac + load_date)}
+```
+
+The cargo identity graph extends the existing GraphView (truck ↔ shipment ↔ carrier) with first-class nodes for:
+- **cargo** — the persistent anchor, generated once and immutable
+- **container** — ocean container (ISO 6346)
+- **truck** — tractor unit (VIN)
+- **trailer** — trailer or flatbed (asset tag)
+- **chassis** — intermodal chassis (owner SCAC + number)
+
+Every handoff event (transload, redelivery, container switch, flatbed transfer) creates edges in this graph:
+- Old custodian disconnects from cargo
+- New custodian connects to cargo
+- Cargo node persists as the parent
+
+After 90 days of operation, the cargo identity graph becomes a complete provenance record for every shipment that touched the system. This graph enables:
+- Customs auditors to query full chain of custody
+- Insurance adjusters to trace liability across handoffs
+- CSRD reporters to verify supply chain transparency
+- Legal teams to produce signed custody transfer records
+
+The transload event is just an edge in the graph — the cargo identity is the invariant.
 
 ## Compatibility promise
 

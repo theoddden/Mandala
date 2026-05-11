@@ -113,3 +113,31 @@ class TruckTelemetry(BaseModel):
     position: TruckPosition | None = None
     cold_chain: list[ColdChainReading] = Field(default_factory=list)
     driver: Driver | None = None
+
+
+class FuelTransaction(BaseModel):
+    """Fuel card transaction event.
+
+    Represents a discrete fuel purchase from a fuel card provider
+    (FLEETCOR/Comdata, Coast, WEX, EFS, etc.). The transaction links
+    fuel cost data with operational trip events for cost analytics:
+    fuel cost per mile, cost per route, cost per carrier.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    truck_id: str
+    transaction_id: str  # Unique ID from fuel card provider
+    transaction_date: datetime
+    location: GeoPoint | None = None
+    station_name: str | None = Field(default=None, description="Fuel station name")
+    station_address: str | None = Field(default=None, description="Fuel station address")
+    gallons: float = Field(..., gt=0, description="Fuel quantity in gallons")
+    cost_usd: float = Field(..., ge=0, description="Total transaction cost in USD")
+    price_per_gallon: float | None = Field(default=None, ge=0, description="Price per gallon")
+    fuel_type: FuelType | None = Field(default=None, description="Type of fuel purchased")
+    odometer_km: float | None = Field(default=None, ge=0, description="Odometer reading at fueling")
+    driver_id: str | None = Field(default=None, description="Driver ID if available")
+    card_number: str | None = Field(default=None, description="Fuel card number (masked)")
+    vendor: str = Field(..., description="Fuel card provider: coast, fleetcor, wex, efs, etc.")
+    metadata: dict[str, str] = Field(default_factory=dict, description="Additional provider-specific fields")

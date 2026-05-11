@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     # Rail (Vizion API)
     vizion_api_key: str = ""
 
+    # Fuel cards (Coast, FLEETCOR/Comdata, WEX, EFS)
+    coast_api_key: str = ""
+    fleetcor_api_key: str = ""
+    fleetcor_account_id: str = ""
+    wex_api_key: str = ""
+    wex_account_id: str = ""
+    efs_api_key: str = ""
+    efs_account_id: str = ""
+
     # Aurora (autonomous trucks) - partnership required
     # See docs/integrations/aurora.md for integration pattern
     aurora_enabled: bool = False  # Disabled by default until partnership available
@@ -61,18 +70,6 @@ class Settings(BaseSettings):
     aurora_api_key: str = ""
     aurora_beacon_enabled: bool = False  # Aurora Beacon platform
     aurora_intelligence_sharing: bool = True  # Share Aurora data with Samsara trucks
-
-    # GS1 EPCIS 2.0 - global standard for supply chain traceability
-    # See docs/standards/epcis.md for integration pattern
-    epcis_enabled: bool = False  # Disabled by default until EPCIS endpoint configured
-    epcis_capture_url: str = ""  # EPCIS capture endpoint (e.g., http://epcis-server:8080/capture)
-    epcis_query_url: str = ""  # EPCIS query endpoint (e.g., http://epcis-server:8080/query)
-    epcis_gln: str = ""  # GS1 Global Location Number (your organization)
-
-    # IOF Supply Chain Reference Ontology (SCRO) alignment
-    # See docs/standards/iof-mapping.md for alignment document
-    iof_enabled: bool = False  # Add IOF URIs to events for semantic web compatibility
-    iof_base_uri: str = "https://w3id.org/mandala/iof/"  # Base URI for IOF concepts
 
     # SAP (Transportation Management, Extended Warehouse Management)
     # See docs/integrations/sap.md for integration pattern
