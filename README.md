@@ -1,20 +1,16 @@
 # Mandala
 
-> The bridge between the wheel and the plane.
-
 <!-- mcp-name: io.github.theoddden/mandala -->
 
-**Mandala is an open-source logistics event bridge.** One canonical event
-schema connects fleet telemetry (Samsara), trade/customs platforms
-(Descartes MacroPoint, WiseTech CargoWise), rail intermodal (Vizion),
-carrier safety (FMCSA SAFER), and fuel-card networks (FLEETCOR, Coast,
-WEX, EFS) — and ships them as **OpenTelemetry spans**, dbt-modeled marts,
-and MCP tools for LLM agents.
+Mandala is an event-sourced logistics integration bridge. It normalizes
+data from fleet telemetry (Samsara), trade/customs platforms (Descartes
+MacroPoint, WiseTech CargoWise), rail intermodal (Vizion), carrier safety
+(FMCSA SAFER), and fuel-card networks (FLEETCOR, Coast, WEX, EFS) into a
+single canonical event schema.
 
-It does one thing very well: `POST /events` → canonical bus → projections,
-materialized views, alerts, and OTel trace export. No TMS, no visibility
-platform, no warehouse. Just the plumbing that makes the others talk to
-each other.
+Events are shipped as OpenTelemetry spans to observability backends,
+materialized into dbt models for analytics, and exposed via MCP tools for
+LLM agents.
 
 ```
    Samsara                                       Descartes / CargoWise / Vizion / FMCSA
@@ -38,35 +34,43 @@ each other.
 
 ## What's new in 0.3
 
-- **Trace-native envelope.** Every `MandalaEvent` is also an
-  OpenTelemetry span. Shipment-subject derives `trace_id`
-  deterministically, so every truck/vessel/customs event for one shipment
-  auto-correlates into a single distributed trace in any OTLP-compatible
-  backend (Jaeger, Tempo, Honeycomb, Datadog, Grafana Cloud). See
-  [Trace-native logistics](#trace-native-logistics).
-- **Logistics semantic conventions.** Proposed `logistics.*` OTel
-  attribute namespace (`mandala/core/events/semconv.py`) so shipments are
-  filterable / groupable / aggregable using your existing observability
-  stack.
-- **Deterministic Event-Time Windowing.** Geometric Idempotency and the
-  Stator's Latch prevent state-machine corruption from out-of-order spatial
-  data. If a truck goes through a dead zone and uploads 50 pings at once
-  later, the system doesn't "hallucinate" that the truck teleported. See
-  [Deterministic Event-Time Windowing](#deterministic-event-time-windowing).
-- **Minimum docker footprint.** 4 services, ~300MB RAM. Optional profiles
-  (`otel`, `traces`, `all`) for OTel collector + Jaeger UI.
-- **Focused.** Removed EPCIS adapter, IOF SCRO ontology, AIS placeholder,
-  and webhook-hot-path enrichment. Enrichment now runs as **detectors in
-  the worker** (FMCSA, Rail) — never blocking ingest.
+- **Trace-native envelope.** Every `MandalaEvent` is an OpenTelemetry span.
+  Shipment-subject derives `trace_id` deterministically, so all events for one
+  shipment auto-correlate into a single distributed trace in any OTLP-compatible
+  backend. See [Trace-native logistics](#trace-native-logistics).
+- **Logistics semantic conventions.** Proposed `logistics.*` OTel attribute
+  namespace for filtering and aggregation in observability stacks.
+- **Deterministic Event-Time Windowing.** Geometric Idempotency and the Stator's
+  Latch prevent state-machine corruption from out-of-order spatial data. Events
+  arriving from dead zones are detected as time-travel data and routed to backfill
+  instead of triggering false alerts. See [Deterministic Event-Time Windowing](#deterministic-event-time-windowing).
+- **Production reliability.** Circuit breakers, adaptive backpressure, rate limiting,
+  DLQ with retry policy, detector sandbox with timeout protection, and event replay
+  for bug fixes. See [Production reliability features](#production-reliability-features).
+- **High availability.** Redis Sentinel support with nginx rate limiting. HA profile
+  adds redis-replica + 3x sentinel for self-hosted HA without AWS ElastiCache.
+- **Apache Iceberg event log.** Optional permanent event storage on object storage
+  (S3/GCS/Azure) separates ephemeral Redis Streams from durable event log.
+- **Zero-Knowledge Proofs.** Privacy-preserving verification for insurance/customs/audits
+  using ZK circuits for cold-chain breach proofs.
+- **Standalone Docker connectors.** Samsara and Descartes connectors can run as
+  independent Docker containers without the full Mandala stack.
+- **Focused scope.** Removed EPCIS adapter, IOF SCRO ontology, AIS placeholder, and
+  webhook-hot-path enrichment. Enrichment runs as detectors in the worker (FMCSA,
+  Rail) — never blocking ingest.
+- **Minimum footprint.** 4 services, ~350MB RAM. Optional profiles (`ha`, `otel`,
+  `traces`, `all`) for Sentinel, OTel collector, and Jaeger UI.
 
 ## Why
 
-Samsara has truck-level operational data. Descartes / CargoWise have
-customs filings and trade intelligence. Vizion has rail intermodal status.
-FMCSA SAFER has carrier CSA scores. None of them talk to each other. A
-truck enters a US-Mexico POE geofence — Samsara knows; the customs broker
-doesn't. A customs hold lands in Descartes — the dispatcher running
-Samsara doesn't see it. **Mandala is the missing event layer.**
+Logistics data is fragmented across vendors. Samsara has truck telemetry,
+Descartes/CargoWise have customs filings, Vizion has rail status, FMCSA
+has carrier safety data. These systems don't integrate. A truck enters a
+border POE geofence — Samsara records it, but the customs broker doesn't
+see it. A customs hold lands in Descartes — the dispatcher using Samsara
+doesn't know.
+
+Mandala provides a canonical event layer that connects these systems.
 
 ## What Mandala actually is
 
@@ -101,17 +105,22 @@ Typically 20-line scripts. Mandala ships optional utilities
 |---|---|
 | `core/events/envelope.py` | CloudEvents 1.0 + OTel span envelope — the only internal shape |
 | `core/events/semconv.py` | Logistics semantic conventions for OTel attributes |
-| `core/bus.py` | Redis Streams pub/sub with consumer groups |
+| `core/bus.py` | Redis Streams pub/sub with consumer groups + dual-write to Iceberg |
 | `core/state.py` | Redis-backed projection with TTL (14-day default) |
 | `core/observability/otlp_exporter.py` | Opt-in OTLP/HTTP exporter (zero overhead when disabled) |
 | `core/hmac.py` | Webhook signature verification with replay protection |
-| `core/dead_letter.py` | DLQ with retry policy |
+| `core/dead_letter.py` | DLQ with retry policy and exponential backoff |
 | `core/alert_routing.py` | Slack / email / SMS / PagerDuty / webhook fan-out |
 | `core/detector_sandbox.py` | Timeout and circuit breaker protection for detectors |
 | `core/replay.py` | Event replay from Iceberg or Redis Stream for bug fixes |
 | `core/adaptive_backpressure.py` | Resource-aware backpressure based on system health |
+| `core/geometric_hash.py` | H3/S2 geometric hashing for spatial idempotency |
+| `core/stator_latch.py` | Event-time determinism latch for out-of-order data |
+| `core/reorder_buffer.py` | Re-ordering buffer for out-of-order event handling |
+| `core/circuit_breaker.py` | Circuit breaker for external API calls |
+| `core/rate_limiter.py` | Token bucket rate limiting for API endpoints |
 | `views/{geospatial,bitmap,timeseries,graph}.py` | Materialized views over the stream |
-| `mcp/server.py` | MCP stdio server for LLM agents |
+| `mcp/server.py` | MCP stdio server for LLM agents (8 tools) |
 
 **The pattern:**
 1. **Ingest** — webhook receives vendor payload → normalize to `MandalaEvent` → verify HMAC → check idempotency → publish to Redis Stream.
@@ -206,31 +215,26 @@ Cloud, or any OTLP backend.
 
 ## Deterministic Event-Time Windowing
 
-While standard SaaS uses "System Time" (when the server receives the data),
-elite telemetry systems use **Event-Time Determinism**. This ensures that if
-a truck goes through a dead zone and uploads 50 pings at once later, the
-system doesn't "hallucinate" that the truck teleported.
+Standard systems use "System Time" (when the server receives data). This causes
+issues when data arrives out of order due to network latency or dead zones.
+If a truck uploads 50 location pings at once after passing through a dead zone,
+a naive system might trigger false alerts because it thinks the truck traveled
+impossible distances in seconds.
 
-### The Problem: Geometric Idempotency
+### Implementation
 
-If Ping A (Location: Laredo) arrives after Ping B (Location: San Antonio)
-due to network lag, a naive system triggers a "Speeding Alert" or "Route
-Deviation" because it thinks the truck traveled 150 miles in 1 second.
+Mandala uses event-time determinism with three components:
 
-### The Solution: Stator's Latch + Geometric Hashing
+1. **Geometric Hashing** — Derives a deterministic geometric hash (H3 or S2) for
+   each coordinate and binds it to the event timestamp at the source.
 
-Mandala implements three components to solve this:
-
-1. **Geometric Hashing** — Derive a deterministic geometric hash (using H3 or S2)
-   for each coordinate and bind it to the Event Timestamp at the source (the truck).
-
-2. **The Stator's Latch** — A Redis-backed latch that tracks the last committed
-   event time per entity. If an event arrives with an older timestamp, it's flagged
-   as "time-travel" data and routed to backfill instead of triggering alerts.
+2. **Stator's Latch** — A Redis-backed latch that tracks the last committed event
+   time per entity. Events with timestamps older than the last committed time are
+   flagged as time-travel data and routed to backfill instead of triggering alerts.
 
 3. **Re-ordering Buffer** — When events arrive out of sequence, the buffer can
-   "re-wind" the state of the asset, insert the missing data point, and re-calculate
-   the trajectory before the detector pipeline sees it.
+   re-wind state, insert missing data points, and re-calculate trajectory before
+   the detector pipeline processes them.
 
 ### Configuration
 
@@ -277,17 +281,78 @@ redis.set(f"latch:{packet.source_id}", packet.event_time)
 
 ### Benefits
 
-- **For Logistics:** Eliminates 99% of false "Truck Stolen" or "Geofence Breached" alerts
-- **For Options:** Identical to Matching Engine Logic — if a "Cancel" order arrives
-  after a "Fill" due to latency, the exchange must have a deterministic latch
+- **For Logistics:** Reduces false "Truck Stolen" or "Geofence Breached" alerts caused
+  by out-of-order spatial data
 - **For Audits:** Three-timestamp accounting (occurred_at, received_at, processed_at)
-  proves when Mandala detected an issue relative to when the event occurred
+  provides proof of detection latency relative to event occurrence
+
+## Apache Iceberg Event Log
+
+Mandala supports dual-write to Apache Iceberg for permanent event storage.
+This separates the ephemeral Redis Streams bus from durable event log storage
+on object storage (S3, GCS, or Azure).
+
+When enabled, every event published to the Redis Stream is also written to
+Iceberg in the background (non-blocking). This provides:
+
+- Permanent event log for audit and compliance
+- Event replay for bug fixes and state correction
+- Decoupling of real-time processing from long-term storage
+
+Configuration:
+
+```bash
+MANDALA_EVENT_LOG_ENABLED=1
+MANDALA_ICEBERG_CATALOG=rest
+MANDALA_ICEBERG_CATALOG_URI=http://localhost:8181
+MANDALA_ICEBERG_WAREHOUSE=s3://mandala-events/
+MANDALA_ICEBERG_TABLE=mandala.events
+MANDALA_ICEBERG_NAMESPACE=mandala
+```
+
+## Zero-Knowledge Proofs
+
+Mandala supports privacy-preserving verification for cold-chain breaches
+using Zero-Knowledge Proofs. This allows verification of temperature
+violations without exposing the underlying sensor data.
+
+The ZK proving service generates cryptographic proofs that a temperature
+breach occurred according to the declared shipment parameters, which can
+be verified by insurance companies, customs authorities, or auditors without
+revealing sensitive telemetry data.
+
+Configuration:
+
+```bash
+MANDALA_ZK_ENABLED=1
+MANDALA_ZK_MAX_CONCURRENT_PROOFS=4
+MANDALA_ZK_CIRCUIT_PATH=/opt/mandala/zk/circuits/
+MANDALA_ZK_PROVING_KEY=/opt/mandala/zk/keys/cold_chain_breach.pk
+MANDALA_ZK_VERIFICATION_KEY=/opt/mandala/zk/keys/cold_chain_breach.vk
+```
+
+## Standalone Docker Connectors
+
+Samsara and Descartes connectors can run as independent Docker containers
+without the full Mandala stack. This is useful for:
+
+- Running connectors in separate infrastructure
+- Testing connectors in isolation
+- Integrating with existing event pipelines
+
+```bash
+# Samsara connector standalone
+docker compose -f docker-compose.samsara-connector.yml up
+
+# Descartes connector standalone
+docker compose -f docker-compose.descartes-connector.yml up
+```
 
 ## Hosting profiles
 
-Mandala is intentionally tiny. The minimum stack is **4 services,
-~350MB RAM** — fits on a $5/mo VPS. Everything else is opt-in via docker
-compose profiles.
+Mandala is designed for minimal resource usage. The default stack is 4 services
+with ~350MB RAM, suitable for a $5/mo VPS. Additional features are opt-in via
+docker compose profiles.
 
 | Profile | Adds | RAM | Use case |
 |---|---|---|---|
@@ -311,43 +376,41 @@ core footprint flat regardless of trace volume.
 
 ## v0.3 scope
 
-Fully functional out of the box with **no commercial agreements**:
+Mandala works out of the box with no commercial agreements required:
 
-- **Samsara connector** — webhook + REST client, with outbound enrichment
-  push to Samsara custom fields / alerts.
-- **Descartes MacroPoint connector** (public carrier docs).
-- **WiseTech CargoWise connector** — eAdaptor inbound webhook (Universal
-  Event XML) + outbound client to push status updates.
-- **FMCSA SAFER enrichment detector** — free public API, enriches carrier
-  events with live CSA scores, inspection history, OOS rate, and
-  operating authority. No credentials required. Runs as a detector in
-  the worker, not the webhook hot path.
-- **Vizion API rail enrichment detector** — covers all 7 Class I North
-  American railways (UP, BNSF, CSX, NS, CN, CPKC) with one API key.
-  Container events get rail status, milestones, ETA, last free day, and
-  pickup availability. Free trial available.
-- **Cross-border alert engine** — fires when a truck enters a POE
-  geofence with no matching customs filing.
-- **Cold-chain alerts** — temperature against the declared shipment range.
-- **Load-board auto-posting** (DAT, opt-in) — when a delivery lands,
-  Mandala emits `mandala.truck.empty` and posts available capacity to
-  every configured board.
-- **Fuel-card connectors** — Coast, FLEETCOR/Comdata, WEX, EFS for
-  cost-per-mile / cost-per-route analytics.
-- **MCP server** — read-only tools for querying shipments, trucks,
-  customs status, alerts, and materialized views.
+- **Samsara connector** — webhook + REST client with outbound enrichment push
+  to Samsara custom fields and alerts
+- **Descartes MacroPoint connector** — public carrier documentation
+- **WiseTech CargoWise connector** — eAdaptor inbound webhook (Universal Event
+  XML) + outbound client for status updates
+- **FMCSA SAFER enrichment detector** — free public API, enriches carrier events
+  with live CSA scores, inspection history, OOS rate, and operating authority.
+  No credentials required. Runs as a detector in the worker, not the webhook
+  hot path
+- **Vizion API rail enrichment detector** — covers all 7 Class I North American
+  railways (UP, BNSF, CSX, NS, CN, CPKC) with one API key. Container events get
+  rail status, milestones, ETA, last free day, and pickup availability
+- **Cross-border alert engine** — fires when a truck enters a POE geofence with
+  no matching customs filing
+- **Cold-chain alerts** — temperature against declared shipment range
+- **Load-board auto-posting** (DAT, opt-in) — emits `mandala.truck.empty` on
+  delivery and posts available capacity to configured boards
+- **Fuel-card connectors** — Coast, FLEETCOR/Comdata, WEX, EFS for cost-per-mile
+  and cost-per-route analytics
+- **MCP server** — 8 read-only tools: `get_shipment`, `get_truck`,
+  `check_customs_status`, `get_recent_alerts`, `get_fleet_near_border`,
+  `get_trucks_at_poe_without_filing`, `get_cold_chain_breaches`,
+  `get_entity_neighbors`
 - **dbt-mandala package** — staging + intermediate + 8 marts including
-  `mandala_lane_intelligence` (proprietary lane-delay baselines from
-  accumulated crossing history).
-- **OTLP exporter** — opt-in trace export to any OTLP backend.
-- **Single Redis dependency.** No Postgres, no Kafka.
+  `mandala_lane_intelligence` (lane-delay baselines from accumulated crossing
+  history)
+- **OTLP exporter** — opt-in trace export to any OTLP backend
+- **Single Redis dependency.** No Postgres, no Kafka
 
-Aurora and SAP scaffolds exist but are stubs until commercial partnerships
-are in place. See `docs/integrations/aurora.md` and
-`docs/integrations/sap.md`.
+Aurora and SAP scaffolds exist as stubs pending commercial partnerships.
+See `docs/integrations/aurora.md` and `docs/integrations/sap.md`.
 
-Mandala degrades gracefully — it must be useful with **only** Samsara
-configured.
+Mandala works with only Samsara configured; additional connectors are optional.
 
 ## Cross-border POE geofencing
 
@@ -554,15 +617,34 @@ mandala replay    # replay historical events to fix state after bugs
 
 ## Production reliability features
 
-### Detector Sandbox
-All detectors run with timeout and circuit breaker protection to prevent a single buggy detector from blocking the entire worker:
+### Circuit Breakers
+External API calls (FMCSA, Vizion, Samsara outbound) are protected by circuit
+breakers that prevent cascading failures when downstream services are degraded.
 
-- **Timeout protection**: Each detector has a configurable timeout (default 30s for standard detectors, 60s for ML/FMCSA detectors)
-- **Circuit breaker**: Detectors that fail repeatedly are automatically tripped open and stop executing until they recover
-- **Configuration**: `MANDALA_DETECTOR_SANDBOX_ENABLED`, `MANDALA_DETECTOR_TIMEOUT_SECONDS`, `MANDALA_DETECTOR_CIRCUIT_BREAKER_THRESHOLD`
+### Rate Limiting
+API endpoints are protected by token bucket rate limiting to prevent abuse and
+protect against webhook floods. Configurable via `MANDALA_RATE_LIMIT_ENABLED`,
+`MANDALA_RATE_LIMIT_REQUESTS_PER_MINUTE`, and `MANDALA_RATE_LIMIT_BURST_SIZE`.
+
+### Dead Letter Queue
+Failed events are sent to a DLQ with exponential backoff retry policy.
+Failed events can be inspected and re-processed after fixing the root cause.
+
+### Detector Sandbox
+All detectors run with timeout and circuit breaker protection to prevent a
+single buggy detector from blocking the entire worker:
+
+- **Timeout protection**: Each detector has a configurable timeout (default 30s
+  for standard detectors, 60s for ML/FMCSA detectors)
+- **Circuit breaker**: Detectors that fail repeatedly are automatically tripped
+  open and stop executing until they recover
+- **Configuration**: `MANDALA_DETECTOR_SANDBOX_ENABLED`,
+  `MANDALA_DETECTOR_TIMEOUT_SECONDS`,
+  `MANDALA_DETECTOR_CIRCUIT_BREAKER_THRESHOLD`
 
 ### Event Replay
-When you discover a bug in projection logic or detectors, you can replay historical events to correct state:
+When bugs are discovered in projection logic or detectors, historical events can
+be replayed to correct state:
 
 ```bash
 # Replay from Iceberg event log (requires MANDALA_EVENT_LOG_ENABLED=1)
@@ -578,12 +660,15 @@ mandala replay --stream --count 1000
 Replay respects idempotency keys, so duplicate events are automatically skipped.
 
 ### Adaptive Backpressure
-The worker monitors system health (Redis latency, memory usage, CPU load) and adapts processing accordingly:
+The worker monitors system health (Redis latency, memory usage, CPU load) and
+adapts processing accordingly:
 
 - **Health checks**: Monitors Redis latency, memory percent, CPU percent
 - **Adaptive batch sizing**: Reduces batch size when system is degraded
 - **Ingestion rejection**: Rejects new events when system is critically degraded
-- **Configuration**: `MANDALA_ADAPTIVE_BACKPRESSURE_ENABLED`, `MANDALA_REDIS_LATENCY_THRESHOLD_MS`, `MANDALA_MEMORY_THRESHOLD_PERCENT`, `MANDALA_CPU_THRESHOLD_PERCENT`
+- **Configuration**: `MANDALA_ADAPTIVE_BACKPRESSURE_ENABLED`,
+  `MANDALA_REDIS_LATENCY_THRESHOLD_MS`, `MANDALA_MEMORY_THRESHOLD_PERCENT`,
+  `MANDALA_CPU_THRESHOLD_PERCENT`
 
 ## Self-implemented data ingestion
 
@@ -682,10 +767,9 @@ Marts:
 | `mandala_cold_chain_compliance` | breach window | regulatory liability surface |
 | `mandala_carbon_per_trip` | journey | CSRD / CBAM-friendly emissions |
 
-`mandala_lane_intelligence` is the asymmetric one: after 90 days of
-operation it produces lane-delay baselines no vendor sells. This is what
-incumbents charge $200K/yr to approximate from aggregated shipper data —
-Mandala generates it for free from your own events.
+`mandala_lane_intelligence` produces lane-delay baselines from accumulated
+crossing history. After 90 days of operation, it generates baselines that
+are typically sold as proprietary data by incumbents.
 
 ## The schema
 
@@ -772,33 +856,42 @@ GitHub secrets and turn on the workflow.
 
 **Webhook not receiving events**
 - Verify the webhook URL is reachable from the vendor's servers
-- Check the `MANDALA_*_WEBHOOK_SECRET` matches the vendor config
-- `docker compose logs api`
-- For local testing: `ngrok http 8000`
+- Check that `MANDALA_*_WEBHOOK_SECRET` matches the vendor config
+- Check API logs: `docker compose logs api`
+- For local testing: use `ngrok http 8000`
 
 **Worker not processing events**
-- `docker compose logs worker`
-- `docker compose exec redis redis-cli XLEN mandala:events`
+- Check worker logs: `docker compose logs worker`
+- Check stream length: `docker compose exec redis redis-cli XLEN mandala:events`
+- Verify consumer group exists: `docker compose exec redis redis-cli XINFO GROUPS mandala:events`
 
 **State store empty**
 - Events must be processed by the worker before appearing in state
-- Check projection errors in worker logs
+- Check for projection errors in worker logs
 - Verify the 14-day TTL hasn't expired
 
 **Spans not appearing in Jaeger / Honeycomb**
-- `MANDALA_OTLP_ENDPOINT` set? `docker compose logs worker | grep otlp`
-- Collector reachable from the worker container?
-- `docker compose logs otel-collector` for export errors
+- Verify `MANDALA_OTLP_ENDPOINT` is set
+- Check worker logs for OTLP errors: `docker compose logs worker | grep otlp`
+- Verify collector is reachable from the worker container
+- Check collector logs: `docker compose logs otel-collector`
 
 **Redis memory growing**
-- Streams auto-trim at 100,000 messages
-- State keys expire on the 14-day TTL
-- `docker compose exec redis redis-cli INFO memory`
+- Streams auto-trim at 100,000 messages (configurable via `MANDALA_STREAM_MAXLEN`)
+- State keys expire on the 14-day TTL (configurable via `MANDALA_STATE_TTL_SECONDS`)
+- Check memory usage: `docker compose exec redis redis-cli INFO memory`
 
 **Performance issues**
 - Scale workers: `docker compose up --scale worker=3`
 - Run a dedicated views runner: `docker compose up --scale views=1`
-- Move to AWS via the Terraform module
+- Adjust batch size: `MANDALA_STREAM_BATCH_SIZE`
+- Move to AWS via the Terraform module for higher throughput
+
+**Circuit breaker tripping**
+- Check which external APIs are failing
+- Verify API credentials are valid
+- Check rate limits on downstream services
+- Monitor circuit breaker state in logs
 
 ## Risks & privacy
 
