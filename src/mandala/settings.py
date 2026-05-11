@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     sap_client_id: str = ""  # SAP OAuth client ID
     sap_client_secret: str = ""  # SAP OAuth client secret
 
+    # Port-of-Entry (POE) geofencing for cross-border operations
+    # Configurable POE geofences for customs visibility alerts
+    # Format: {"poe_name": {"latitude": float, "longitude": float, "radius_meters": int}}
+    # Example: Laredo, Otay Mesa, Eagle Pass for US-Mexico border
+    poe_geofences: dict[str, dict[str, float | int]] = {}
+
     # Streams
     stream_inbound: str = "mandala:events"
     consumer_group: str = "mandala"

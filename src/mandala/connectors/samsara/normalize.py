@@ -84,14 +84,22 @@ def _handle_vehicle_location(payload: dict[str, Any]) -> list[MandalaEvent]:
     ]
 
 
-def _handle_geofence(payload: dict[str, Any], *, entered: bool) -> list[MandalaEvent]:
+def _handle_geofence(payload: dict[str, Any], *, entered: bool, poe_geofences: dict[str, dict[str, float | int]] | None = None) -> list[MandalaEvent]:
     data = payload.get("data", {})
     vehicle = data.get("vehicle", {})
     fence = data.get("address", {}) or data.get("geofence", {})
     vehicle_id = vehicle.get("id") or data.get("vehicleId")
     if vehicle_id is None:
         return []
-    return [
+    
+    geofence_name = fence.get("name", "")
+    
+    # Check if this geofence matches a configured POE
+    is_poe = False
+    if poe_geofences and geofence_name:
+        is_poe = geofence_name.lower() in [poe.lower() for poe in poe_geofences.keys()]
+    
+    events = [
         new_event(
             type=EventType.TRUCK_GEOFENCE_ENTERED if entered else EventType.TRUCK_GEOFENCE_EXITED,
             source=SOURCE,
@@ -99,13 +107,32 @@ def _handle_geofence(payload: dict[str, Any], *, entered: bool) -> list[MandalaE
             data={
                 "truck_id": str(vehicle_id),
                 "geofence_id": str(fence.get("id")) if fence.get("id") is not None else None,
-                "geofence_name": fence.get("name"),
+                "geofence_name": geofence_name,
                 "occurred_at": _parse_ts(payload["happenedAtTime"]).isoformat(),
                 "vendor": "samsara",
             },
             ingest_id=_ingest_id(payload),
         )
     ]
+    
+    # If this is a POE geofence, emit a POE-specific event
+    if is_poe:
+        events.append(
+            new_event(
+                type=EventType.TRUCK_POE_ENTERED if entered else EventType.TRUCK_POE_EXITED,
+                source=SOURCE,
+                subject=_truck_urn(vehicle_id),
+                data={
+                    "truck_id": str(vehicle_id),
+                    "poe_name": geofence_name,
+                    "occurred_at": _parse_ts(payload["happenedAtTime"]).isoformat(),
+                    "vendor": "samsara",
+                },
+                ingest_id=f"{_ingest_id(payload)}:poe" if _ingest_id(payload) else None,
+            )
+        )
+    
+    return events
 
 
 def _handle_temperature(payload: dict[str, Any]) -> list[MandalaEvent]:
@@ -213,13 +240,21 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[MandalaEvent]]] = {
 }
 
 
-def normalize(payload: dict[str, Any]) -> list[MandalaEvent]:
-    """Convert a Samsara webhook payload into zero or more :class:`MandalaEvent` objects."""
+def normalize(payload: dict[str, Any], *, poe_geofences: dict[str, dict[str, float | int]] | None = None) -> list[MandalaEvent]:
+    """Convert a Samsara webhook payload into zero or more :class:`MandalaEvent` objects.
+    
+    Args:
+        payload: The Samsara webhook payload
+        poe_geofences: Optional dict of configured POE geofences for POE-specific event emission
+    """
     event_type = payload.get("eventType") or payload.get("type") or ""
     handler = _HANDLERS.get(event_type)
     if handler is None:
         return []
     try:
+        # Pass poe_geofences to geofence handlers
+        if "geofence" in event_type.lower():
+            return _handle_geofence(payload, entered="enter" in event_type.lower(), poe_geofences=poe_geofences)
         return handler(payload)
     except (KeyError, ValueError, TypeError):
         # Malformed payload — caller decides whether to DLQ or drop.

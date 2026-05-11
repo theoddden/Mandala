@@ -14,9 +14,12 @@ class EventType(StrEnum):
     TRUCK_POSITION = "mandala.truck.position.updated"
     TRUCK_GEOFENCE_ENTERED = "mandala.truck.geofence.entered"
     TRUCK_GEOFENCE_EXITED = "mandala.truck.geofence.exited"
+    TRUCK_POE_ENTERED = "mandala.truck.poe.entered"  # Port-of-Entry geofence entered
+    TRUCK_POE_EXITED = "mandala.truck.poe.exited"  # Port-of-Entry geofence exited
     TRUCK_ETA_UPDATED = "mandala.truck.eta.updated"
     TRUCK_HARSH_EVENT = "mandala.truck.harsh_event.detected"
     TRUCK_FUEL_LOW = "mandala.truck.fuel.low"
+    TRUCK_FUELED = "mandala.truck.fueled"
     TRUCK_DOOR_OPENED = "mandala.truck.door.opened"
 
     # --- Cold chain --------------------------------------------------------
@@ -43,9 +46,13 @@ class EventType(StrEnum):
     # --- Customs (Descartes GLN, CBP, SAT, CBSA) -------------------------
     CUSTOMS_FILED = "mandala.shipment.customs.filed"
     CUSTOMS_HOLD = "mandala.shipment.customs.hold"
+    CUSTOMS_HOLD_LANDED = "mandala.shipment.customs.hold.landed"
+    CUSTOMS_HOLD_CLEARED = "mandala.shipment.customs.hold.cleared"
     CUSTOMS_EXAM = "mandala.shipment.customs.exam"
     CUSTOMS_RELEASED = "mandala.shipment.customs.released"
     CUSTOMS_REJECTED = "mandala.shipment.customs.rejected"
+    CUSTOMS_DOCUMENTATION_MISSING = "mandala.shipment.customs.documentation.missing"
+    CUSTOMS_INSPECTION_REQUIRED = "mandala.shipment.customs.inspection.required"
 
     # --- BOL / paperwork --------------------------------------------------
     BOL_RECEIVED = "mandala.shipment.bol.received"

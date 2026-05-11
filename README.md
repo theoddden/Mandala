@@ -136,6 +136,28 @@ commercial partnerships are in place. See docs/integrations/aurora.md for the
 autonomous truck integration pattern and docs/integrations/sap.md for the SAP
 TM/EWM telemetry integration pattern.
 
+## Bleeding Edge Features
+
+Mandala includes two bleeding-edge features that provide asymmetric advantages over traditional visibility platforms:
+
+### Real-Time Customs Visibility Alerts
+
+Mandala emits granular customs status events when customs status changes:
+- `mandala.shipment.customs.hold.landed` - Customs hold landed on shipment
+- `mandala.shipment.customs.hold.cleared` - Customs hold cleared
+- `mandala.shipment.customs.documentation.missing` - Documentation missing
+- `mandala.shipment.customs.inspection.required` - Inspection required
+
+These events are emitted via the Descartes MacroPoint webhook integration when customs status changes. Combined with Mandala's alert routing (Slack, email, SMS), this provides immediate visibility into customs issues without manual phone calls to customs brokers.
+
+### Cross-Border POE Geofencing
+
+Mandala supports configurable Port-of-Entry (POE) geofences for cross-border operations. When a truck enters or exits a configured POE geofence in Samsara, Mandala emits POE-specific events:
+- `mandala.truck.poe.entered` - Truck entered POE geofence
+- `mandala.truck.poe.exited` - Truck exited POE geofence
+
+POE geofences are configured via the `MANDALA_POE_GEOFENCES` environment variable (see `.env.example` for examples). This provides real-time visibility into border crossings for any POE (US-Mexico, US-Canada, or any other border region), enabling cross-border control towers and automated border capacity management.
+
 **GS1 EPCIS 2.0 and IOF SCRO standards compliance:**
 Mandala includes an EPCIS 2.0 adapter (src/mandala/connectors/epcis/) that emits
 MandalaEvents in EPCIS 2.0 JSON format, making Mandala compatible with every

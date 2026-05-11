@@ -57,7 +57,7 @@ async def ingest_samsara_webhook(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="invalid JSON") from None
 
-    events = normalize(payload)
+    events = normalize(payload, poe_geofences=settings.poe_geofences)
     if not events:
         log.info("samsara.webhook.unhandled", event_type=payload.get("eventType"))
         return Response(status_code=status.HTTP_204_NO_CONTENT)

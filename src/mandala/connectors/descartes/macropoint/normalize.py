@@ -41,6 +41,12 @@ _STATUS_TO_EVENT: dict[str, EventType] = {
     "AtBorder": EventType.SHIPMENT_AT_BORDER,
     "Delivered": EventType.SHIPMENT_DELIVERED,
     "Cancelled": EventType.SHIPMENT_CANCELLED,
+    # Granular customs status events (for real-time customs visibility alerts)
+    # These can be emitted by MacroPoint when customs status changes
+    "CustomsHoldLanded": EventType.CUSTOMS_HOLD_LANDED,
+    "CustomsHoldCleared": EventType.CUSTOMS_HOLD_CLEARED,
+    "CustomsDocumentationMissing": EventType.CUSTOMS_DOCUMENTATION_MISSING,
+    "CustomsInspectionRequired": EventType.CUSTOMS_INSPECTION_REQUIRED,
 }
 
 
