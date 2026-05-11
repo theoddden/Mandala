@@ -1,0 +1,74 @@
+# OpenTelemetry collector config for Mandala (opt-in profile)
+#
+# Receives spans from the Mandala worker on OTLP/HTTP (4318) and routes
+# them to any backend you configure below. By default we ship to a local
+# Jaeger instance if running. Switch to Honeycomb, Datadog, Tempo, etc.
+# by changing the exporters block.
+#
+# Resource cost: ~50MB RAM, negligible CPU at 1k spans/sec.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Batch spans before forwarding to reduce backend load.
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+
+  # Add a fingerprint so logistics traces are easy to find in any backend.
+  resource:
+    attributes:
+      - key: service.namespace
+        value: mandala
+        action: upsert
+      - key: deployment.environment
+        value: ${env:DEPLOY_ENV:-local}
+        action: upsert
+
+exporters:
+  # Default: log spans to collector stdout for easy debugging.
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 100
+
+  # Local Jaeger (profile: traces). Comment out if not running Jaeger.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # --- Add your production backend below ---
+  # Honeycomb:
+  # otlphttp/honeycomb:
+  #   endpoint: https://api.honeycomb.io/v1/traces
+  #   headers:
+  #     x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+  #
+  # Datadog:
+  # datadog:
+  #   api:
+  #     key: ${env:DD_API_KEY}
+  #     site: datadoghq.com
+  #
+  # Grafana Cloud / Tempo:
+  # otlphttp/grafana:
+  #   endpoint: https://tempo-prod-04-prod-us-east-0.grafana.net/tempo
+  #   headers:
+  #     authorization: "Basic ${env:GRAFANA_CLOUD_AUTH}"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, resource]
+      exporters: [debug, otlp/jaeger]
+  telemetry:
+    logs:
+      level: info

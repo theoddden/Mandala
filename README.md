@@ -4,161 +4,289 @@
 
 <!-- mcp-name: io.github.theoddden/mandala -->
 
-**Mandala** is an open-source event bridge that connects fleet telemetry
-(Samsara) and trade/customs platforms (Descartes — starting with
-MacroPoint) through a single canonical event schema. It ships in two
-forms simultaneously:
+**Mandala is an open-source logistics event bridge.** One canonical event
+schema connects fleet telemetry (Samsara), trade/customs platforms
+(Descartes MacroPoint, WiseTech CargoWise), rail intermodal (Vizion),
+carrier safety (FMCSA SAFER), and fuel-card networks (FLEETCOR, Coast,
+WEX, EFS) — and ships them as **OpenTelemetry spans**, dbt-modeled marts,
+and MCP tools for LLM agents.
 
-- a **Python service** (`mandala`) — webhook ingest + Redis-Streams
-  worker + MCP server for LLM agents.
-- a **dbt package** (`dbt-mandala`) — `dbt deps` and you have warehouse-
-  native `mandala_shipments`, `mandala_trucks_current`,
-  `mandala_border_crossings`, `mandala_cold_chain_compliance`,
-  `mandala_carbon_per_trip` materializing in your warehouse.
+It does one thing very well: `POST /events` → canonical bus → projections,
+materialized views, alerts, and OTel trace export. No TMS, no visibility
+platform, no warehouse. Just the plumbing that makes the others talk to
+each other.
 
 ```
-   Samsara                                  Descartes / MacroPoint
-  ┌────────┐    webhook     ┌──────────┐    webhook     ┌──────────┐
-  │ trucks │ ─────────────▶ │  Mandala │ ─────────────▶ │ shipments│
-  │ sensor │                │  bridge  │                │ customs  │
-  └────────┘ ◀───────────── │   ┌────┐ │ ◀───────────── └──────────┘
-              alerts/route  │   │MCP │ │   holds/BOL
-              ┌────────┐    │   │tool│ │
-              │ Claude │ ◀──┤   │  s │ │       Redis Streams
-              │  / LLM │    │   └────┘ │            │
-              └────────┘    └──────────┘            ▼
-                                            warehouse sink ──▶ dbt-mandala
+   Samsara                                       Descartes / CargoWise / Vizion / FMCSA
+  ┌────────┐    webhook       ┌──────────┐    webhook    ┌──────────┐
+  │ trucks │ ───────────────▶ │  Mandala │ ◀──────────── │ shipments│
+  │ sensor │                  │  bridge  │               │ customs  │
+  └────────┘ ◀─────────────── │ ┌──────┐ │ ────────────▶ │ rail     │
+            alerts/enrichment │ │ MCP  │ │  Samsara push └──────────┘
+              ┌────────┐      │ │tools │ │
+              │ Claude │ ◀────┤ └──────┘ │       Redis Streams + State (TTL)
+              │  / LLM │      │ ┌──────┐ │              │
+              └────────┘      │ │ OTLP │ │  ┌───────────┴────────────┐
+                              │ └──────┘ │  │                        │
+                              └──────────┘  ▼                        ▼
+                                    │  Jaeger / Tempo /         warehouse sink
+                                    │  Honeycomb / Datadog      → dbt-mandala
+                                    │
+                                    ▼
+                          (every shipment is a trace)
 ```
+
+## What's new in 0.3
+
+- **Trace-native envelope.** Every `MandalaEvent` is also an
+  OpenTelemetry span. Shipment-subject derives `trace_id`
+  deterministically, so every truck/vessel/customs event for one shipment
+  auto-correlates into a single distributed trace in any OTLP-compatible
+  backend (Jaeger, Tempo, Honeycomb, Datadog, Grafana Cloud). See
+  [Trace-native logistics](#trace-native-logistics).
+- **Logistics semantic conventions.** Proposed `logistics.*` OTel
+  attribute namespace (`mandala/core/events/semconv.py`) so shipments are
+  filterable / groupable / aggregable using your existing observability
+  stack.
+- **Minimum docker footprint.** 4 services, ~300MB RAM. Optional profiles
+  (`otel`, `traces`, `all`) for OTel collector + Jaeger UI.
+- **Focused.** Removed EPCIS adapter, IOF SCRO ontology, AIS placeholder,
+  and webhook-hot-path enrichment. Enrichment now runs as **detectors in
+  the worker** (FMCSA, Rail) — never blocking ingest.
 
 ## Why
 
-Samsara has truck-level operational data. Descartes has customs filings,
-carrier networks, and trade intelligence. They don't talk to each other.
-A truck enters a US-Mexico Port-of-Entry geofence — Samsara knows; the
-customs broker doesn't necessarily. A customs hold lands in Descartes —
-the dispatcher running Samsara doesn't see it. Mandala is the missing
-event layer.
+Samsara has truck-level operational data. Descartes / CargoWise have
+customs filings and trade intelligence. Vizion has rail intermodal status.
+FMCSA SAFER has carrier CSA scores. None of them talk to each other. A
+truck enters a US-Mexico POE geofence — Samsara knows; the customs broker
+doesn't. A customs hold lands in Descartes — the dispatcher running
+Samsara doesn't see it. **Mandala is the missing event layer.**
 
-## What Mandala Actually Is
+## What Mandala actually is
 
-Mandala is an **event-sourced integration bridge** with a short-lived Redis projection. It's not a visibility platform, not a TMS, and not a data warehouse — it's the plumbing that connects them.
+An **event-sourced integration bridge** with a short-lived Redis
+projection. Not a visibility platform, not a TMS, not a data warehouse —
+the plumbing that connects them.
 
-### Architectural Boundary: POST /events
+### Architectural boundary: POST /events
 
-Mandala's job is to be the **canonical event bus**. Your job is to get your data into it.
+Mandala's job is to be the **canonical event bus**. Your job is to get
+your data into it.
 
 **The contract:**
-- POST events to `/events` endpoint
-- Follow the CloudEvents 1.0 schema (see SCHEMA.md)
-- Mandala handles projection, detection, alerting, and materialized views
+- `POST /events` (or use a bundled webhook connector)
+- Follow the CloudEvents 1.0 schema (see [SCHEMA.md](SCHEMA.md))
+- Mandala handles projection, detection, alerting, materialized views,
+  and OTel span export
 
-**What you implement yourself:**
+**What you implement yourself** (or use bundled connectors):
 - ATRI bottleneck polling → POST to `/events`
 - CBP ACE customs status → POST to `/events`
 - AIS vessel tracking → POST to `/events`
-- SAP file drops → POST to `/events`
 - Postgres/MySQL CDC → POST to `/events`
 
-These are 20-line Python scripts or shell commands, not built-in connectors. Mandala provides optional utilities (`src/mandala/core/connector.py`, `scheduler.py`, `file_watcher.py`, `cdc.py`) but the data ingestion logic is yours.
+Typically 20-line scripts. Mandala ships optional utilities
+(`core/connector.py`, `core/scheduler.py`, `core/file_watcher.py`,
+`core/cdc.py`) but the ingestion logic is yours.
 
-### Core Architecture (~240 lines)
+### Core architecture
 
-| Component | Purpose | Lines |
-|---|---|---|
-| `core/events/envelope.py` | CloudEvents 1.0 wrapper — the only internal data shape | 114 |
-| `core/bus.py` | Redis Streams pub/sub with consumer groups | 110 |
-| `core/state.py` | Redis-backed projection with TTL (14-day default) + field clearing via `STATE_DELETE` | 65 |
+| Component | Purpose |
+|---|---|
+| `core/events/envelope.py` | CloudEvents 1.0 + OTel span envelope — the only internal shape |
+| `core/events/semconv.py` | Logistics semantic conventions for OTel attributes |
+| `core/bus.py` | Redis Streams pub/sub with consumer groups |
+| `core/state.py` | Redis-backed projection with TTL (14-day default) |
+| `core/observability/otlp_exporter.py` | Opt-in OTLP/HTTP exporter (zero overhead when disabled) |
+| `core/hmac.py` | Webhook signature verification with replay protection |
+| `core/dead_letter.py` | DLQ with retry policy |
+| `core/alert_routing.py` | Slack / email / SMS / PagerDuty / webhook fan-out |
+| `views/{geospatial,bitmap,timeseries,graph}.py` | Materialized views over the stream |
+| `mcp/server.py` | MCP stdio server for LLM agents |
 
 **The pattern:**
-1. **Ingest** — webhook receives vendor payload → normalize to `MandalaEvent` → publish to Redis Stream
-2. **Process** — single worker reads stream → projects into `StateStore` → runs detectors → publishes alerts back to stream
-3. **Query** — MCP server reads from `StateStore` (read-only, no writes)
+1. **Ingest** — webhook receives vendor payload → normalize to `MandalaEvent` → verify HMAC → check idempotency → publish to Redis Stream.
+2. **Process** — worker reads stream → projects into `StateStore` → runs detectors → publishes alert events back to stream → emits OTel span (if enabled).
+3. **Query** — MCP server reads from `StateStore` (read-only). Views runner maintains GEO / Bitmap / Timeseries / Graph indexes in its own consumer group.
 
-### Materialized Views
+### Materialized views
 
-Mandala includes four read-optimized materialized views that subscribe to the event stream and maintain specialized data structures in Redis:
+Mandala includes four read-optimized materialized views that subscribe to
+the event stream and maintain specialized data structures in Redis:
 
-| View | Purpose | Redis Data Structure |
+| View | Purpose | Redis primitive |
 |---|---|---|
-| `GeospatialView` | Index truck positions for spatial queries (e.g., "trucks within 50km of POE") | GEO |
-| `TimeseriesView` | Index cold-chain readings with retention trimming | Sorted Set |
-| `BitmapView` | Track truck presence at POEs and customs filing status via bit operations | BITMAP |
-| `GraphView` | Project entity relationships (truck ↔ shipment ↔ carrier) into a graph | RedisGraph/FalkorDB (optional) |
+| `GeospatialView` | "Trucks within 50km of POE" | GEO |
+| `TimeseriesView` | Cold-chain readings with auto-retention | Sorted Set |
+| `BitmapView` | "Trucks at POE without a customs filing" | BITMAP |
+| `GraphView` | truck ↔ shipment ↔ carrier relationships | RedisGraph/FalkorDB (optional) |
 
-**Benefits:**
-- O(1) spatial queries instead of O(N) scans
-- Boolean set algebra for complex conditions (e.g., "trucks at POE without filing")
-- Time-series queries with automatic retention
-- Eventually consistent with the event stream
+Views run in a separate consumer group (`mandala:views`) so they never
+back up the detector pipeline.
 
-**Usage:**
 ```bash
-mandala views                    # Run views runner
-mandala views --rebuild          # Rebuild all views from scratch
+mandala views               # run views runner
+mandala views --rebuild     # rebuild all views from scratch
 ```
 
-Views run in a separate consumer group (`mandala:views`) so they never back up the detector pipeline.
+## Trace-native logistics
 
-## v0.1 scope
+A shipment's lifecycle is, by definition, a distributed trace. Factory
+dispatch → freight pickup → port loading → customs clearance → vessel
+transit → unloading → warehouse → last mile → delivery — each stage has
+a start time, end time, attributes, and a parent context. **That is
+literally an OpenTelemetry span.**
+
+Mandala leans into this:
+
+- Every `MandalaEvent` carries a `trace_id`, `span_id`, optional
+  `parent_span_id`, optional `end_time`, and an `attributes` dict.
+- The `trace_id` is `SHA256(subject)[:32]`. Every event that shares a
+  shipment subject (e.g. `urn:mandala:shipment:ABC123`) **auto-correlates
+  into the same trace, with no coordination.**
+- Detector-emitted events inherit the source event's `span_id` as their
+  `parent_span_id`, so causal chains (ingest → detector → alert) show up
+  natively in any trace UI.
+- The worker ships every event to OTLP when `MANDALA_OTLP_ENDPOINT` is
+  set. Unset = zero overhead.
+
+```python
+from mandala.core.events.envelope import new_event
+from mandala.core.events.semconv import LogisticsAttr
+
+event = new_event(
+    type="mandala.truck.poe.entered",
+    source="mandala/connector/samsara",
+    subject="urn:mandala:shipment:ABC123",
+    attributes={
+        LogisticsAttr.SHIPMENT_ID: "ABC123",
+        LogisticsAttr.TRUCK_ID: "truck-42",
+        LogisticsAttr.CARRIER_SCAC: "MAEU",
+        LogisticsAttr.LOCATION_POE: "laredo",
+    },
+)
+# event.trace_id == SHA256("urn:mandala:shipment:ABC123")[:32]
+# event.to_otlp_span() returns an OTLP/JSON span ready for any backend
+```
+
+**What you get for free** by being trace-native:
+
+- Jaeger / Grafana Tempo / Honeycomb / Datadog / Grafana Cloud trace
+  visualization — out of the box, no Mandala dashboard required.
+- Latency analysis across spans (factory→delivery P50/P95).
+- Tail-based sampling, span links, error budgets — every OTel feature.
+- Agent-readable causality: LLMs already reason about distributed systems
+  via traces.
+
+### Running with traces locally
+
+```bash
+# Full stack with OTel collector + Jaeger UI
+docker compose --profile all up
+
+# Just OTel collector (route to your own backend)
+MANDALA_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces \
+  docker compose --profile otel up
+
+# Open Jaeger UI to browse shipment traces
+open http://localhost:16686
+```
+
+Edit `deploy/otel-collector.yaml` to route to Honeycomb, Datadog, Grafana
+Cloud, or any OTLP backend.
+
+## Hosting profiles
+
+Mandala is intentionally tiny. The minimum stack is **4 services,
+~300MB RAM** — fits on a $5/mo VPS. Everything else is opt-in via docker
+compose profiles.
+
+| Profile | Adds | RAM | Use case |
+|---|---|---|---|
+| (default) | redis, api, worker | ~300MB | Self-hosted, small fleet, <1k events/sec |
+| `--profile otel` | otel-collector | +50MB | Route spans to your APM (Honeycomb/Datadog/Tempo) |
+| `--profile traces` | otel-collector + jaeger | +250MB | Local trace browsing UI |
+| `--profile all` | both | ~600MB | Full local dev with trace visualization |
+
+```bash
+docker compose up                        # minimum
+docker compose --profile otel up         # +OTLP export
+docker compose --profile traces up       # +Jaeger UI
+docker compose --profile all up          # everything
+```
+
+Trace storage (Jaeger / Tempo / Honeycomb / Datadog) is **always
+external** — Mandala produces spans; it doesn't host them. This keeps the
+core footprint flat regardless of trace volume.
+
+## v0.3 scope
 
 Fully functional out of the box with **no commercial agreements**:
 
-- **Samsara connector** — webhook + REST client.
+- **Samsara connector** — webhook + REST client, with outbound enrichment
+  push to Samsara custom fields / alerts.
 - **Descartes MacroPoint connector** (public carrier docs).
 - **WiseTech CargoWise connector** — eAdaptor inbound webhook (Universal
-  Event XML) + outbound client to push status updates back into
-  CargoWise. Sits alongside Descartes; either or both can be enabled.
-- **FMCSA SAFER enrichment** — free, public API that enriches carrier
-  events with live CSA scores, inspection history, violation records,
-  out-of-service rate, and operating authority status. No credentials
-  required. Decorates carrier events with FMCSA data when DOT number is
-  present.
-- **Rail intermodal enrichment (Vizion API)** — covers all 7 Class I
-  North American railways (UP, BNSF, CSX, NS, CN, CPKC) with a single
-  API key. No LOA required. Enriches container events with rail status,
-  milestones, ETA, last free day, and availability for pickup. Free trial
-  available.
+  Event XML) + outbound client to push status updates.
+- **FMCSA SAFER enrichment detector** — free public API, enriches carrier
+  events with live CSA scores, inspection history, OOS rate, and
+  operating authority. No credentials required. Runs as a detector in
+  the worker, not the webhook hot path.
+- **Vizion API rail enrichment detector** — covers all 7 Class I North
+  American railways (UP, BNSF, CSX, NS, CN, CPKC) with one API key.
+  Container events get rail status, milestones, ETA, last free day, and
+  pickup availability. Free trial available.
 - **Cross-border alert engine** — fires when a truck enters a POE
   geofence with no matching customs filing.
-- **Cold-chain alerts** — temperature against the declared shipment
-  range.
-- **Load-board auto-posting** (DAT, **opt-in**) — when a
-  delivery lands, Mandala emits `mandala.truck.empty` and
-  posts available capacity to every configured board with the truck's
-  current GPS position and equipment type. Disabled by default
-  (`MANDALA_LOADBOARD_ENABLED=0`); requires partner credentials per board.
-- **MCP server** — read-only tools for querying shipments, trucks, customs status, alerts, and materialized views (geospatial, timeseries, bitmap, graph).
-- **dbt-mandala package** — staging + intermediate + 8 marts including `mandala_lane_intelligence`, which generates proprietary lane-level delay baselines from accumulated crossing history. After 90 days of operation, produces intelligence no vendor sells: crossing time distribution by POE, day of week, hour, carrier, and cargo type. This is what Project44 charges $200K/year to approximate from aggregated shipper data. Mandala generates it for free from your own events.
+- **Cold-chain alerts** — temperature against the declared shipment range.
+- **Load-board auto-posting** (DAT, opt-in) — when a delivery lands,
+  Mandala emits `mandala.truck.empty` and posts available capacity to
+  every configured board.
+- **Fuel-card connectors** — Coast, FLEETCOR/Comdata, WEX, EFS for
+  cost-per-mile / cost-per-route analytics.
+- **MCP server** — read-only tools for querying shipments, trucks,
+  customs status, alerts, and materialized views.
+- **dbt-mandala package** — staging + intermediate + 8 marts including
+  `mandala_lane_intelligence` (proprietary lane-delay baselines from
+  accumulated crossing history).
+- **OTLP exporter** — opt-in trace export to any OTLP backend.
 - **Single Redis dependency.** No Postgres, no Kafka.
 
-Datamyne, Visual Compliance, Aurora, and SAP scaffolds exist but are stubs until
-commercial partnerships are in place. See docs/integrations/aurora.md for the
-autonomous truck integration pattern and docs/integrations/sap.md for the SAP
-TM/EWM telemetry integration pattern.
+Aurora and SAP scaffolds exist but are stubs until commercial partnerships
+are in place. See `docs/integrations/aurora.md` and
+`docs/integrations/sap.md`.
 
-## Bleeding Edge Features
+Mandala degrades gracefully — it must be useful with **only** Samsara
+configured.
 
-Mandala includes two bleeding-edge features that provide asymmetric advantages over traditional visibility platforms:
+## Cross-border POE geofencing
 
-### Real-Time Customs Visibility Alerts
+Mandala supports configurable Port-of-Entry (POE) geofences for
+cross-border operations. When a truck enters or exits a configured POE
+geofence in Samsara, Mandala emits:
 
-Mandala emits granular customs status events when customs status changes:
-- `mandala.shipment.customs.hold.landed` - Customs hold landed on shipment
-- `mandala.shipment.customs.hold.cleared` - Customs hold cleared
-- `mandala.shipment.customs.documentation.missing` - Documentation missing
-- `mandala.shipment.customs.inspection.required` - Inspection required
+- `mandala.truck.poe.entered`
+- `mandala.truck.poe.exited`
 
-These events are emitted via the Descartes MacroPoint webhook integration when customs status changes. Combined with Mandala's alert routing (Slack, email, SMS), this provides immediate visibility into customs issues without manual phone calls to customs brokers.
+POE geofences are configured via `MANDALA_POE_GEOFENCES` (see
+`.env.example`). Combined with Descartes MacroPoint customs events, this
+provides real-time visibility into border crossings for any POE (US-MX,
+US-CA, EU, anywhere).
 
-### Cross-Border POE Geofencing
+## Customs visibility events
 
-Mandala supports configurable Port-of-Entry (POE) geofences for cross-border operations. When a truck enters or exits a configured POE geofence in Samsara, Mandala emits POE-specific events:
-- `mandala.truck.poe.entered` - Truck entered POE geofence
-- `mandala.truck.poe.exited` - Truck exited POE geofence
+Granular customs status events emitted from the Descartes MacroPoint
+webhook:
 
-POE geofences are configured via the `MANDALA_POE_GEOFENCES` environment variable (see `.env.example` for examples). This provides real-time visibility into border crossings for any POE (US-Mexico, US-Canada, or any other border region), enabling cross-border control towers and automated border capacity management.
+- `mandala.shipment.customs.hold.landed`
+- `mandala.shipment.customs.hold.cleared`
+- `mandala.shipment.customs.documentation.missing`
+- `mandala.shipment.customs.inspection.required`
 
-Mandala degrades gracefully — it must be useful with **only** Samsara configured.
+Combined with alert routing (Slack / email / SMS / PagerDuty / webhook),
+these surface immediately in your tooling without manual phone calls to
+customs brokers.
 
 ## Install
 
@@ -169,30 +297,13 @@ pip install 'mandala[mcp]' # +MCP server
 
 ## Quickstart (under an hour)
 
-### What Mandala Does (Simple Version)
-
-Mandala connects your Samsara fleet data to trade/customs systems (Descartes) and pushes enrichment back to your Samsara dashboard. No separate Mandala dashboard needed.
-
-**Samsara Dashboard Integration:**
-- Custom field "Customs Status" shows "FILED" or "NO_FILING"
-- Custom field "Last Border Crossing" shows POE and timestamp
-- Custom field "Carrier CSA Score" shows safety rating
-- Alerts appear in Samsara for missing customs filings, cold chain breaches, carrier safety issues
-
-**How It Works:**
-```
-Samsara Webhook → Mandala → Descartes/FMCSA → Samsara Dashboard
-                          (enrichment)    (push back)
-```
-
 ### Prerequisites
 
 - **Docker & Docker Compose** — for running Redis, API, and worker
-- **Samsara account** — for fleet telemetry webhooks (free tier works)
+- **Samsara account** — fleet telemetry webhooks (free tier works)
 - **Python 3.11+** — if running outside Docker (optional)
-- **Redis CLI** — for verifying events (optional, `brew install redis` on macOS)
 
-### Step 1: Clone and Configure
+### Step 1: Clone and configure
 
 ```bash
 git clone https://github.com/theoddden/Mandala
@@ -200,46 +311,28 @@ cd Mandala
 cp .env.example .env
 ```
 
-Edit `.env` with your credentials:
+Minimum `.env`:
 
 ```bash
-# Required for Samsara webhook
+# Required: Samsara webhook
 MANDALA_SAMSARA_WEBHOOK_SECRET=your-secret-here
 
-# Required for Samsara outbound integration (push enrichment back to Samsara dashboard)
+# Recommended: push enrichment back to Samsara dashboard
 MANDALA_SAMSARA_API_TOKEN=your-samsara-api-token
-MANDALA_SAMSARA_OUTBOUND_ENABLED=1  # Set to 1 to enable Samsara dashboard integration
-MANDALA_SAMSARA_BASE_URL=https://api.samsara.com
+MANDALA_SAMSARA_OUTBOUND_ENABLED=1
 
-# Optional: Descartes MacroPoint (trade/customs)
+# Optional: Descartes / CargoWise / Vizion / DAT
 MANDALA_DESCARTES_WEBHOOK_SECRET=
-MANDALA_DESCARTES_API_KEY=
-MANDALA_DESCARTES_BASE_URL=https://gln.descartes.com
-
-# Optional: FMCSA SAFER (carrier enrichment — no credentials required)
-# Just enable the connector in your workflow
-
-# Optional: Vizion API (rail intermodal — single API key, free trial)
+MANDALA_CARGOWISE_WEBHOOK_SECRET=
 MANDALA_VIZION_API_KEY=
 
-# Optional: CargoWise (WiseTech eAdaptor — international freight)
-MANDALA_CARGOWISE_WEBHOOK_SECRET=
-MANDALA_CARGOWISE_EADAPTOR_URL=
-MANDALA_CARGOWISE_USERNAME=
-MANDALA_CARGOWISE_PASSWORD=
-MANDALA_CARGOWISE_ORGANIZATION_CODE=
-
-# Optional: Load-board auto-posting (DAT — opt-in)
-MANDALA_LOADBOARD_ENABLED=0
-MANDALA_DAT_CLIENT_ID=
-MANDALA_DAT_CLIENT_SECRET=
+# Optional: trace-native span export
+# MANDALA_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
 ```
 
-**Important**: 
-- Set `MANDALA_SAMSARA_WEBHOOK_SECRET` to a random string. This is the HMAC secret Samsara uses to sign webhooks. You'll configure the same value in Samsara's webhook UI.
-- Set `MANDALA_SAMSARA_API_TOKEN` to your Samsara API token (from Samsara Admin Console → API Tokens).
-- Set `MANDALA_SAMSARA_OUTBOUND_ENABLED=1` to push enrichment back to your Samsara dashboard (custom fields + alerts).
-- Webhook secrets default to empty strings for fail-closed security. Mandala validates HMAC signatures and timestamps to prevent replay attacks.
+Webhook secrets default to empty strings for fail-closed security.
+Mandala validates HMAC signatures and timestamps to prevent replay
+attacks.
 
 ### Step 2: Start Mandala
 
@@ -247,72 +340,30 @@ MANDALA_DAT_CLIENT_SECRET=
 docker compose up -d
 ```
 
-This starts three services:
-- **redis** — Redis 7-alpine (event stream + state store)
-- **api** — FastAPI webhook ingest (port 8000)
-- **worker** — Event processor (projection + alerts)
-
-Verify services are running:
+Three services come up: `redis`, `api` (port 8000), `worker`. Verify:
 
 ```bash
 docker compose ps
-# Should show all three services as "healthy"
-```
-
-Check logs:
-
-```bash
 docker compose logs -f api
 docker compose logs -f worker
 ```
 
-### Step 3: Configure Samsara Webhook
+### Step 3: Configure Samsara webhook
 
-1. Log into Samsara Admin Console
-2. Navigate to **Settings → Webhooks**
-3. Click **Add Webhook**
-4. Configure:
-   - **URL**: `http://YOUR_HOST:8000/webhooks/samsara`
-   - **Events**: Select at least `Vehicle Location`, `Geofence Entry`, `Geofence Exit`
-   - **Secret**: Use the same value as `MANDALA_SAMSARA_WEBHOOK_SECRET` in your `.env`
-5. Click **Save**
+1. Samsara Admin Console → **Settings → Webhooks → Add Webhook**
+2. URL: `http://YOUR_HOST:8000/webhooks/samsara`
+3. Events: `Vehicle Location`, `Geofence Entry`, `Geofence Exit` (minimum)
+4. Secret: same value as `MANDALA_SAMSARA_WEBHOOK_SECRET`
 
-**Note**: Replace `YOUR_HOST` with your actual hostname or IP. For local testing, use `http://localhost:8000/webhooks/samsara` if Samsara can reach your machine (requires ngrok or similar for external access).
+For local testing, use [ngrok](https://ngrok.com/): `ngrok http 8000`.
 
-### Step 4: Trigger a Test Event
-
-The easiest way to test is to trigger a geofence event in Samsara:
-
-1. Create a simple geofence around your facility in Samsara
-2. Drive a truck through the geofence (or simulate via Samsara's test webhook feature)
-3. Watch Mandala logs:
+### Step 4: Verify events in the stream
 
 ```bash
-docker compose logs -f worker
+docker compose exec redis redis-cli XREVRANGE mandala:events + - COUNT 10
 ```
 
-You should see log messages like:
-```
-INFO mandala.worker - received event, type=mandala.truck.geofence.entered, truck_id=12345
-INFO mandala.worker - projected into state store
-```
-
-### Step 5: Verify Events in Redis Stream
-
-Use Redis CLI to inspect the stream:
-
-```bash
-# Connect to Redis container
-docker compose exec redis redis-cli
-
-# Read from the event stream
-XREAD STREAMS mandala:events 0
-
-# Or read the last 10 events
-XREVRANGE mandala:events + - COUNT 10
-```
-
-You'll see JSON events in CloudEvents 1.0 format:
+You'll see CloudEvents-1.0-shaped JSON with OTel span fields:
 
 ```json
 {
@@ -321,40 +372,46 @@ You'll see JSON events in CloudEvents 1.0 format:
   "type": "mandala.truck.geofence.entered",
   "time": "2026-05-09T17:30:00Z",
   "subject": "urn:mandala:truck:samsara:12345",
-  "data": {
-    "truck_id": "12345",
-    "geofence_id": "geo-1",
-    "geofence_name": "Facility",
-    "occurred_at": "2026-05-09T17:29:45Z"
-  }
+  "trace_id": "9f3b8a...",
+  "span_id": "1c4d...",
+  "attributes": {
+    "logistics.truck.id": "12345",
+    "logistics.location.geofence": "Facility"
+  },
+  "data": { "...": "..." }
 }
 ```
 
-### Step 6: Check State Store
+### Step 5: Inspect state
 
-Mandala projects events into a Redis-backed state store with 14-day TTL:
+State store is Redis-backed with 14-day TTL:
 
 ```bash
-# Get current state for a truck
 docker compose exec redis redis-cli HGETALL "mandala:state:truck:12345"
-
-# List all trucks in state
 docker compose exec redis redis-cli KEYS "mandala:state:truck:*"
 ```
 
-### Step 7: Test MCP Server (Optional)
-
-If you want to query Mandala from an LLM:
+### Step 6: (Optional) Enable trace export
 
 ```bash
-# Install Mandala with MCP support
-pip install 'mandala[mcp]'
+# Add to .env
+MANDALA_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
 
-# Start MCP server
+# Bring up OTel collector + Jaeger UI
+docker compose --profile all up -d
+
+# Browse shipment traces
+open http://localhost:16686
+```
+
+### Step 7: (Optional) MCP server for LLM agents
+
+```bash
+pip install 'mandala[mcp]'
 mandala mcp
 ```
 
-Add to your Claude Desktop config (`~/.claude/claude_desktop_config.json`):
+Claude Desktop config (`~/.claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -367,263 +424,111 @@ Add to your Claude Desktop config (`~/.claude/claude_desktop_config.json`):
 }
 ```
 
-Available tools:
-- `get_shipment` — Query shipment by ID
-- `get_truck` — Query truck by ID
-- `check_customs_status` — Check customs filing status
-- `get_recent_alerts` — Get recent alerts
-- `get_fleet_near_border` — Get trucks near POE geofences
+Tools: `get_shipment`, `get_truck`, `check_customs_status`,
+`get_recent_alerts`, `get_fleet_near_border`, plus view-backed queries
+(`trucks_near_poe`, `cold_chain_breaches_last_24h`, etc.).
 
-### Step 8: Enable Samsara Dashboard Integration (Recommended)
-
-This pushes Mandala enrichment back to your Samsara dashboard. No separate Mandala dashboard needed.
-
-**What appears in Samsara:**
-- Custom field "mandala_alert_status" shows alert type and severity
-- Alerts appear in Samsara for customs compliance, cold chain, carrier safety
-- All enrichment happens automatically when Mandala detects issues
-
-**Configuration:**
-```bash
-# Already set in Step 1, but verify:
-MANDALA_SAMSARA_OUTBOUND_ENABLED=1
-MANDALA_SAMSARA_API_TOKEN=your-samsara-api-token
-```
-
-**Restart Mandala:**
-```bash
-docker compose restart worker
-```
-
-**Verify in Samsara:**
-1. Log into Samsara Admin Console
-2. Navigate to **Fleet → Vehicles**
-3. Click on a truck that crossed a border
-4. Check custom field "mandala_alert_status" — should show alert info
-5. Check **Alerts** tab — should show Mandala alerts
-
-### Step 9: Enable Additional Connectors (Optional)
-
-**FMCSA SAFER** (carrier enrichment, no credentials):
+### Step 8: (Optional) Additional connectors
 
 ```bash
-# Add to your workflow to enrich carrier events with CSA scores
-# No configuration needed — uses public FMCSA API
-```
+# Vizion rail (free trial)
+MANDALA_VIZION_API_KEY=...
 
-**Vizion API** (rail intermodal):
-
-```bash
-# Add to .env
-MANDALA_VIZION_API_KEY=your-vizion-key
-
-# Free trial: https://www.vizionapi.com
-```
-
-**Load-board auto-posting** (DAT):
-
-```bash
-# Add to .env
+# DAT load-board auto-posting (opt-in)
 MANDALA_LOADBOARD_ENABLED=1
-MANDALA_DAT_CLIENT_ID=
-MANDALA_DAT_CLIENT_SECRET=
+MANDALA_DAT_CLIENT_ID=...
+MANDALA_DAT_CLIENT_SECRET=...
+
+# CargoWise eAdaptor
+MANDALA_CARGOWISE_WEBHOOK_SECRET=...
+MANDALA_CARGOWISE_EADAPTOR_URL=...
 ```
 
-### Step 10: Stop and Cleanup
+FMCSA SAFER works with no credentials — it's a public API.
+
+### Step 9: Stop
 
 ```bash
-# Stop all services
-docker compose down
-
-# Stop and remove volumes (clears Redis data)
-docker compose down -v
-
-# View logs after stopping
-docker compose logs
+docker compose down       # stop services
+docker compose down -v    # stop and clear Redis data
 ```
 
-## FAQ
+## CLI
 
-**How does the idempotency key actually work when the same physical event comes from two different connectors?**
+```bash
+mandala serve     # FastAPI webhook ingest
+mandala worker    # event loop: project + detect + alert + OTLP-emit
+mandala views     # materialized views runner
+mandala mcp       # MCP stdio server for LLMs
+```
 
-The idempotency key is derived from `SHA256(vendor + event_type + occurred_at + entity_id)`. This handles single-vendor deduplication cleanly (e.g., Samsara sends the same geofence event twice due to retry).
+## Self-implemented data ingestion
 
-For cross-vendor events (e.g., Samsara and MacroPoint both emit an event about the same truck crossing the same geofence), **both events will be processed**. The deduplication window is 14 days (matching the state store TTL). Cross-vendor deduplication would require a canonical entity ID mapping layer, which is not currently implemented.
+Mandala provides optional utilities for custom data ingestion, but you
+implement the logic yourself and POST to `/events`.
 
-**Why not cross-vendor deduplication?**
-
-Cross-vendor deduplication is complex because:
-- Different vendors use different entity ID formats (Samsara vehicle ID vs MacroPoint shipment ID)
-- Timestamps may have different precision or timezone handling
-- Event type semantics differ between vendors
-
-If you need cross-vendor deduplication, implement it in your detector logic by querying the state store for recent events from other vendors with matching semantic criteria.
-
-## Troubleshooting
-
-**Webhook not receiving events**
-- Verify Samsara webhook URL is reachable from Samsara's servers
-- Check `MANDALA_SAMSARA_WEBHOOK_SECRET` matches Samsara webhook secret
-- Check API logs: `docker compose logs api`
-- Use ngrok for local testing: `ngrok http 8000`
-
-**Worker not processing events**
-- Check worker logs: `docker compose logs worker`
-- Verify Redis is healthy: `docker compose ps`
-- Check stream has events: `docker compose exec redis redis-cli XLEN mandala:events`
-
-**State store empty**
-- Events must be processed by worker before appearing in state store
-- Check worker logs for projection errors
-- Verify TTL hasn't expired (14-day default)
-
-**MCP server not connecting**
-- Verify `mandala[mcp]` is installed: `pip list | grep mandala`
-- Check Claude Desktop config JSON syntax
-- Test MCP server manually: `mandala mcp` (should wait for stdin)
-
-**Redis memory growing**
-- Stream auto-trims at 100,000 messages
-- State store keys expire after 14-day TTL
-- Monitor with: `docker compose exec redis redis-cli INFO memory`
-
-**Performance issues**
-- Add more worker processes: `docker compose up --scale worker=3`
-- Add views runner for read-optimized queries: `docker compose up --scale views=1`
-- Check Redis CPU/memory: `docker stats mandala-redis-1`
-- Consider AWS deployment for production (see Terraform module below)
-- Consumer-group lag metrics are published to Prometheus for monitoring
-
-## Self-Implemented Data Ingestion
-
-Mandala provides optional utilities for custom data ingestion, but you implement the logic yourself and POST to `/events`.
-
-### Example: ATRI Bottleneck Polling
+### Example: ATRI bottleneck polling
 
 ```python
-# atri_poller.py
-import httpx
-import asyncio
+import asyncio, httpx
+from datetime import datetime, UTC
 
 async def poll_atri():
-    client = httpx.AsyncClient()
-    while True:
-        data = await client.get("https://atri.online.org/api/bottlenecks").json()
-        for corridor, delay in data.items():
-            event = {
-                "type": "mandala.atri.bottleneck.updated",
-                "source": "custom/atri_poller",
-                "time": datetime.utcnow().isoformat(),
-                "data": {"corridor": corridor, "delay": delay},
-            }
-            await httpx.post("http://localhost:8000/events", json=event)
-        await asyncio.sleep(90 * 24 * 60 * 60)  # 90 days
+    async with httpx.AsyncClient() as client:
+        while True:
+            data = (await client.get("https://atri.online.org/api/bottlenecks")).json()
+            for corridor, delay in data.items():
+                event = {
+                    "type": "mandala.atri.bottleneck.updated",
+                    "source": "custom/atri_poller",
+                    "time": datetime.now(UTC).isoformat(),
+                    "subject": f"urn:mandala:corridor:{corridor}",
+                    "attributes": {"logistics.location.corridor": corridor},
+                    "data": {"corridor": corridor, "delay_min": delay},
+                }
+                await client.post("http://localhost:8000/events", json=event)
+            await asyncio.sleep(3600)
 ```
 
-### Example: SAP File Drop
+### Example: SAP file drop
 
 ```python
-# sap_watcher.py
 from mandala.core.file_watcher import FileWatcher
 
 async def on_file(path):
-    # Parse CSV/EDI
-    shipments = parse_csv(path)
-    for shipment in shipments:
-        event = {
+    for shipment in parse_csv(path):
+        await httpx.post("http://localhost:8000/events", json={
             "type": "mandala.shipment.imported",
             "source": "custom/sap_watcher",
-            "time": datetime.utcnow().isoformat(),
+            "subject": f"urn:mandala:shipment:{shipment['id']}",
             "data": shipment,
-        }
-        await httpx.post("http://localhost:8000/events", json=event)
+        })
 
-watcher = FileWatcher()
-watcher.watch_directory("sap_exports", "*.csv", on_file)
-await watcher.start()
+await FileWatcher().watch_directory("sap_exports", "*.csv", on_file).start()
 ```
 
 ### Example: Postgres CDC
 
 ```python
-# postgres_cdc.py
 from mandala.core.cdc import PostgresCDC
 
 async def on_change(change):
-    event = {
+    await httpx.post("http://localhost:8000/events", json={
         "type": f"mandala.{change['table']}.updated",
         "source": "custom/postgres_cdc",
-        "time": datetime.utcnow().isoformat(),
+        "subject": f"urn:mandala:{change['table']}:{change['data']['id']}",
         "data": change["data"],
-    }
-    await httpx.post("http://localhost:8000/events", json=event)
+    })
 
-cdc = PostgresCDC(
+await PostgresCDC(
     connection_string="postgresql://...",
     slot_name="mandala_cdc",
     publication="mandala_pub",
     callback=on_change,
-)
-await cdc.start()
+).start()
 ```
 
 These are your scripts. Mandala just needs events in the right format.
-
-## Four CLI commands. That's it.
-
-```bash
-mandala serve     # FastAPI webhook ingest
-mandala worker    # event loop: project + alert
-mandala views     # materialized views runner (geospatial / timeseries / bitmap / graph)
-mandala mcp       # MCP stdio server for LLMs
-```
-
-## GitHub Actions
-
-Mandala includes a GitHub Actions workflow for automated daily fleet intelligence reports:
-
-- **Daily Fleet Intelligence Report** — Runs at 6:00 AM UTC daily
-- **Report types** — `cross_border_compliance`, `carrier_safety`
-- **Output destinations** — Slack webhook, file, or stdout
-- **Manual trigger** — Can be run on-demand via `workflow_dispatch`
-
-To enable:
-
-1. Add secrets to your GitHub repo:
-   - `SAMSARA_API_KEY` — Your Samsara API token
-   - `SLACK_WEBHOOK_URL` — (optional) Slack webhook for notifications
-
-2. Enable the workflow in your repo's Actions tab
-
-3. Run manually or wait for the daily scheduled run
-
-The workflow generates JSON reports with fleet compliance data and uploads artifacts for 30-day retention.
-
-## Terraform Module
-
-For enterprise deployments, Mandala provides an AWS Terraform module in the Terraform Registry:
-
-```hcl
-module "mandala" {
-  source  = "theoddden/mandala/aws"
-  version = "~> 0.1"
-
-  samsara_webhook_secret = var.samsara_key
-  vizion_api_key         = var.vizion_key
-}
-```
-
-**Provisions:**
-- AWS ElastiCache Redis (~$15/month)
-- Two ECS Fargate tasks (mandala serve + mandala worker)
-- Application Load Balancer with HTTPS
-- AWS Secrets Manager for API keys
-- IAM roles with least-privilege access
-- CloudWatch log groups
-
-**Cost:** ~$50-60/month for basic deployment in us-east-1
-
-See [terraform/aws/README.md](terraform/aws/README.md) for full documentation.
 
 ## The dbt package
 
@@ -645,7 +550,7 @@ Marts:
 
 | Model | Grain | Use |
 |---|---|---|
-| `mandala_shipments` | shipment | the single pane of glass |
+| `mandala_shipments` | shipment | single pane of glass |
 | `mandala_trucks_current` | truck | latest known truck state |
 | `mandala_carrier_safety_profile` | DOT number | live CSA scores, inspection history, FMCSA authority |
 | `mandala_intermodal_legs` | container | rail status, ETA, last free day, milestones |
@@ -654,34 +559,123 @@ Marts:
 | `mandala_cold_chain_compliance` | breach window | regulatory liability surface |
 | `mandala_carbon_per_trip` | journey | CSRD / CBAM-friendly emissions |
 
+`mandala_lane_intelligence` is the asymmetric one: after 90 days of
+operation it produces lane-delay baselines no vendor sells. This is what
+incumbents charge $200K/yr to approximate from aggregated shipper data —
+Mandala generates it for free from your own events.
+
 ## The schema
 
-Every event is a [CloudEvents 1.0](https://cloudevents.io) envelope with
-`type` from the `mandala.*` registry. The full contract — versioned
-independently of the codebase — is in **[SCHEMA.md](SCHEMA.md)**.
+Every event is a [CloudEvents 1.0](https://cloudevents.io) envelope,
+extended with OpenTelemetry span fields, with `type` from the `mandala.*`
+registry. The full contract — versioned independently of the codebase —
+is in **[SCHEMA.md](SCHEMA.md)**.
 
-### Three-Timestamp Event Accounting
+### Three-timestamp event accounting
 
-Every MandalaEvent includes three timestamps for compliance, audit, and liability tracking:
+Every `MandalaEvent` carries three timestamps for compliance, audit, and
+liability tracking:
 
-- **`time`** — When the physical event occurred (e.g., truck crossed POE)
-- **`received_at`** — When Mandala's webhook received the event
-- **`processed_at`** — When the worker ran detectors on the event
+- **`time`** — when the physical event occurred (e.g. truck crossed POE)
+- **`received_at`** — when Mandala's webhook received the event
+- **`processed_at`** — when the worker ran detectors on the event
 
-This enables precise detection lag measurement and audit trail reconstruction:
+For insurance claims and customs disputes, the three timestamps prove
+when Mandala detected an issue relative to when the event occurred:
 
 ```sql
--- mandala_border_crossings includes these fields
 select
     occurred_at,
     received_at,
     processed_at,
-    datediff('second', occurred_at, received_at) as detection_lag_sec,
+    datediff('second', occurred_at, received_at)  as detection_lag_sec,
     datediff('second', occurred_at, processed_at) as alert_lag_sec
 from mandala_border_crossings
 ```
 
-For insurance claims and customs disputes, the three timestamps prove when Mandala detected an issue relative to when the event occurred. Schema version bumped to 0.2.
+### OTel span fields (0.3+)
+
+- **`trace_id`** — 16-byte hex; derived from `subject` so all events for a shipment share a trace
+- **`span_id`** — 8-byte hex; derived from event `id`
+- **`parent_span_id`** — causal parent (e.g. detector → emitted event)
+- **`end_time`** — for spans with duration (vessel transit, customs hold)
+- **`attributes`** — OTel attributes following `logistics.*` semantic conventions
+
+Schema version: **0.3**.
+
+## Idempotency and exactly-once delivery
+
+The idempotency key is `SHA256(vendor + event_type + occurred_at + entity_id)`.
+This handles single-vendor deduplication cleanly (e.g. Samsara retries).
+
+Cross-vendor deduplication (Samsara and MacroPoint both emit the same
+border crossing) is **not** automatic — both events are processed because
+different vendors use different entity ID formats, timestamp precision,
+and event semantics. If you need it, query the state store from a
+detector for recent events with matching semantic criteria.
+
+The dedup window is 14 days (matching the state store TTL).
+
+## Terraform module
+
+For AWS deployments:
+
+```hcl
+module "mandala" {
+  source  = "theoddden/mandala/aws"
+  version = "~> 0.1"
+
+  samsara_webhook_secret = var.samsara_key
+  vizion_api_key         = var.vizion_key
+}
+```
+
+Provisions ElastiCache Redis (~$15/mo), two ECS Fargate tasks
+(`serve` + `worker`), ALB with HTTPS, Secrets Manager, IAM least-priv,
+and CloudWatch logs. **~$50-60/mo** for basic us-east-1 deployment.
+
+See [terraform/aws/README.md](terraform/aws/README.md).
+
+## GitHub Actions
+
+Daily fleet intelligence reports at 6:00 AM UTC. Report types:
+`cross_border_compliance`, `carrier_safety`. Output: Slack / file / stdout.
+30-day artifact retention.
+
+To enable, add `SAMSARA_API_KEY` (and optionally `SLACK_WEBHOOK_URL`) as
+GitHub secrets and turn on the workflow.
+
+## Troubleshooting
+
+**Webhook not receiving events**
+- Verify the webhook URL is reachable from the vendor's servers
+- Check the `MANDALA_*_WEBHOOK_SECRET` matches the vendor config
+- `docker compose logs api`
+- For local testing: `ngrok http 8000`
+
+**Worker not processing events**
+- `docker compose logs worker`
+- `docker compose exec redis redis-cli XLEN mandala:events`
+
+**State store empty**
+- Events must be processed by the worker before appearing in state
+- Check projection errors in worker logs
+- Verify the 14-day TTL hasn't expired
+
+**Spans not appearing in Jaeger / Honeycomb**
+- `MANDALA_OTLP_ENDPOINT` set? `docker compose logs worker | grep otlp`
+- Collector reachable from the worker container?
+- `docker compose logs otel-collector` for export errors
+
+**Redis memory growing**
+- Streams auto-trim at 100,000 messages
+- State keys expire on the 14-day TTL
+- `docker compose exec redis redis-cli INFO memory`
+
+**Performance issues**
+- Scale workers: `docker compose up --scale worker=3`
+- Run a dedicated views runner: `docker compose up --scale views=1`
+- Move to AWS via the Terraform module
 
 ## Risks & privacy
 
@@ -694,6 +688,6 @@ For insurance claims and customs disputes, the three timestamps prove when Manda
 
 Apache 2.0 — see [LICENSE](LICENSE).
 
-Mandala is not affiliated with Samsara Inc. or The Descartes Systems
-Group Inc. References to those products are solely for interoperability
-and integration.
+Mandala is not affiliated with Samsara Inc., The Descartes Systems Group
+Inc., WiseTech Global, Vizion, FLEETCOR, Coast, WEX, or EFS. References
+to those products are solely for interoperability and integration.

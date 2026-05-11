@@ -25,6 +25,7 @@ from mandala.core.alert_routing import AlertRouter
 from mandala.core.bus import RedisStreamsBus
 from mandala.core.dead_letter import DeadLetterQueue
 from mandala.core.events.envelope import MandalaEvent
+from mandala.core.observability import get_exporter
 from mandala.core.metrics import (
     alert_routing_duration_seconds,
     alerts_routed_total,
@@ -95,6 +96,12 @@ async def run() -> None:
         start_metrics_server(s.metrics_port)
         log.info("metrics server started", port=s.metrics_port)
 
+    # Start OTLP exporter (opt-in; no-op when MANDALA_OTLP_ENDPOINT unset)
+    otlp = get_exporter()
+    await otlp.start()
+    if otlp.enabled:
+        log.info("otlp exporter enabled", endpoint=otlp.endpoint)
+
     log.info(
         "mandala.worker.start",
         stream=s.stream_inbound,
@@ -126,6 +133,10 @@ async def run() -> None:
                 # Set processed_at timestamp for three-timestamp accounting
                 event.processed_at = datetime.now(timezone.utc)
 
+                # Trace-native: ship every ingested event as an OTel span.
+                # No-op when MANDALA_OTLP_ENDPOINT is unset.
+                otlp.emit(event)
+
                 # Calculate stream lag (event time to processing time)
                 if event.time:
                     lag_seconds = (event.processed_at - event.time).total_seconds()
@@ -155,6 +166,12 @@ async def run() -> None:
                         for ne in new_events:
                             # Set processed_at timestamp for three-timestamp accounting
                             ne.processed_at = datetime.now(timezone.utc)
+                            # Trace-native: link detector-emitted spans to the
+                            # ingest span (causal parent) so the OTel trace shows
+                            # the full causality chain in any backend.
+                            if ne.parent_span_id is None and event.span_id:
+                                ne.parent_span_id = event.span_id
+                            otlp.emit(ne)
                             # Detector-emitted events have a fresh `time` per
                             # invocation, so the bus-layer dedup key would never
                             # match. Disable it here; webhook layer is the
@@ -220,6 +237,7 @@ async def run() -> None:
         if samsara_outbound:
             await samsara_outbound.close()
         await alert_router.close()
+        await otlp.stop()
         await r.aclose()
 
 

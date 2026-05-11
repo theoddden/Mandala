@@ -31,8 +31,37 @@ services:
       MANDALA_REDIS_URL: redis://redis:6379/0
       MANDALA_SAMSARA_API_TOKEN: ${MANDALA_SAMSARA_API_TOKEN:-}
       MANDALA_SAMSARA_OUTBOUND_ENABLED: ${MANDALA_SAMSARA_OUTBOUND_ENABLED:-0}
+      MANDALA_OTLP_ENDPOINT: ${MANDALA_OTLP_ENDPOINT:-}
     depends_on:
       redis: { condition: service_healthy }
+
+  # --- Optional: OpenTelemetry collector (profile: otel) -----------------
+  # Routes Mandala spans to any OTLP-compatible backend (Jaeger, Tempo,
+  # Honeycomb, Datadog, Grafana Cloud). ~50MB RAM, fully opt-in.
+  #   docker compose --profile otel up
+  otel-collector:
+    profiles: ["otel", "all"]
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+    restart: unless-stopped
+
+  # --- Optional: Local trace UI (profile: traces) ------------------------
+  # Jaeger all-in-one for local debugging. ~200MB RAM.
+  #   docker compose --profile traces up
+  jaeger:
+    profiles: ["traces", "all"]
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14250:14250"  # collector gRPC
+    restart: unless-stopped
 
 volumes:
   redis-data:

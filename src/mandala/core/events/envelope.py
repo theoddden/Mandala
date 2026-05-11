@@ -23,6 +23,20 @@ Optional extensions used by Mandala:
 * ``mandalaschemaversion`` — version of the canonical schema (e.g. ``"0.1"``).
 * ``mandalaingestid`` — id of the raw inbound webhook (idempotency).
 * ``mandalaidempotencykey`` — SHA256-derived idempotency key for exactly-once delivery.
+
+Trace-native model (Mandala 0.3+):
+
+Every event is also an OpenTelemetry-compatible **span**. A shipment's
+lifecycle is a distributed trace; each truck/vessel/customs event is a span
+on that trace. The ``trace_id`` is derived deterministically from the
+event's ``subject`` (e.g. ``urn:mandala:shipment:ABC123``) so all events
+for one shipment auto-correlate without coordination.
+
+* ``trace_id`` — 16-byte hex (32 chars). Derived from subject if unset.
+* ``span_id`` — 8-byte hex (16 chars). Derived from event ``id`` if unset.
+* ``parent_span_id`` — optional causal parent (e.g. ingest event that triggered a detector).
+* ``end_time`` — for spans with duration (vessel transit, customs hold).
+* ``attributes`` — OTel-style attributes (semantic conventions: ``logistics.*``).
 """
 from __future__ import annotations
 
@@ -38,6 +52,35 @@ from mandala.core.events.types import EventType
 
 SCHEMA_VERSION = "0.3"
 SPEC_VERSION = "1.0"
+
+
+def _derive_trace_id(subject: str | None, fallback: str) -> str:
+    """Derive a deterministic 16-byte (32 hex char) trace_id.
+
+    All events sharing a subject (e.g. a shipment URN) get the same trace_id,
+    so every truck/vessel/customs event for that shipment auto-correlates
+    into a single OpenTelemetry trace without coordination.
+    """
+    seed = subject if subject else fallback
+    return hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
+def _derive_span_id(event_id: str) -> str:
+    """Derive an 8-byte (16 hex char) span_id from the event id."""
+    return hashlib.sha256(event_id.encode()).hexdigest()[:16]
+
+
+def _otlp_value(v: Any) -> dict[str, Any]:
+    """Encode a Python value as an OTLP AnyValue."""
+    if isinstance(v, bool):
+        return {"boolValue": v}
+    if isinstance(v, int):
+        return {"intValue": str(v)}
+    if isinstance(v, float):
+        return {"doubleValue": v}
+    if isinstance(v, str):
+        return {"stringValue": v}
+    return {"stringValue": json.dumps(v, default=str)}
 
 
 class MandalaEvent(BaseModel):
@@ -64,8 +107,22 @@ class MandalaEvent(BaseModel):
     # --- Three-timestamp accounting ----------------------------------------
     received_at: datetime | None = Field(default=None, description="When Mandala's webhook received the event")
     processed_at: datetime | None = Field(default=None, description="When the worker ran detectors on the event")
+    # --- OpenTelemetry span model (trace-native, Mandala 0.3+) -------------
+    trace_id: str | None = Field(default=None, description="16-byte hex trace id; derived from subject if unset")
+    span_id: str | None = Field(default=None, description="8-byte hex span id; derived from event id if unset")
+    parent_span_id: str | None = Field(default=None, description="Causal parent span (e.g. detector → emitted event)")
+    end_time: datetime | None = Field(default=None, description="Span end time for events with duration (vessel transit, customs hold)")
+    attributes: dict[str, Any] = Field(default_factory=dict, description="OTel span attributes (logistics.* semantic conventions)")
     # --- Payload ----------------------------------------------------------
     data: Any = None
+
+    def model_post_init(self, __context: Any) -> None:
+        # Auto-derive trace/span ids so every event is a valid OTel span.
+        # Shipment-subjects auto-correlate into a single trace.
+        if self.trace_id is None:
+            self.trace_id = _derive_trace_id(self.subject, self.id)
+        if self.span_id is None:
+            self.span_id = _derive_span_id(self.id)
 
     @field_validator("specversion")
     @classmethod
@@ -84,6 +141,45 @@ class MandalaEvent(BaseModel):
     @classmethod
     def from_json(cls, raw: str | bytes) -> Self:
         return cls.model_validate(json.loads(raw))
+
+    def to_otlp_span(self) -> dict[str, Any]:
+        """Serialize this event as an OpenTelemetry span (OTLP JSON shape).
+
+        Returns a dict matching the OTLP protobuf JSON encoding for a single
+        span resource. Suitable for shipping to any OTLP-compatible backend
+        (Jaeger, Tempo, Honeycomb, Datadog, Grafana Cloud, etc.).
+
+        The shipment-subject → trace_id mapping means every truck/vessel/customs
+        event for a single shipment ends up as spans on the same trace.
+        """
+        start_ns = int(self.time.timestamp() * 1_000_000_000)
+        end_ns = int((self.end_time or self.time).timestamp() * 1_000_000_000)
+
+        # Build OTel attributes from declared attributes + minimal envelope facts.
+        attrs: dict[str, Any] = {
+            "mandala.event.type": self.type,
+            "mandala.source": self.source,
+            "mandala.schema_version": self.mandalaschemaversion,
+        }
+        if self.subject:
+            attrs["mandala.subject"] = self.subject
+        if self.mandalaingestid:
+            attrs["mandala.ingest_id"] = self.mandalaingestid
+        attrs.update(self.attributes)
+
+        return {
+            "traceId": self.trace_id,
+            "spanId": self.span_id,
+            "parentSpanId": self.parent_span_id or "",
+            "name": self.type,
+            "kind": 1,  # SPAN_KIND_INTERNAL (1); ingest spans could override to PRODUCER (3)
+            "startTimeUnixNano": str(start_ns),
+            "endTimeUnixNano": str(end_ns),
+            "attributes": [
+                {"key": k, "value": _otlp_value(v)} for k, v in attrs.items()
+            ],
+            "status": {"code": 1},  # STATUS_CODE_OK; detectors can set ERROR (2)
+        }
 
     def compute_idempotency_key(self) -> str:
         """Compute deterministic idempotency key from source payload.
@@ -113,6 +209,9 @@ def new_event(
     data: Any = None,
     ingest_id: str | None = None,
     traceparent: str | None = None,
+    parent_span_id: str | None = None,
+    end_time: datetime | None = None,
+    attributes: dict[str, Any] | None = None,
 ) -> MandalaEvent:
     """Construct a :class:`MandalaEvent` with sensible defaults.
 
@@ -124,6 +223,12 @@ def new_event(
         data: Payload — a Pydantic model, dict, or JSON-serializable value.
         ingest_id: ID of the raw inbound webhook for idempotency.
         traceparent: W3C trace context for cross-service correlation.
+        parent_span_id: Causal parent span (e.g. when a detector emits an event
+            in response to another event).
+        end_time: Span end time for events with duration (vessel transit,
+            customs hold). Defaults to the start time for instantaneous events.
+        attributes: OTel-style attributes following ``logistics.*`` semantic
+            conventions (see :mod:`mandala.core.events.semconv`).
     """
     if isinstance(data, BaseModel):
         # Use ``mode="json"`` so datetimes etc. are pre-serialized.
@@ -135,4 +240,7 @@ def new_event(
         data=data,
         mandalaingestid=ingest_id,
         traceparent=traceparent,
+        parent_span_id=parent_span_id,
+        end_time=end_time,
+        attributes=attributes or {},
     )

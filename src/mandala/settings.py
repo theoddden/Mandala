@@ -124,6 +124,14 @@ class Settings(BaseSettings):
     metrics_enabled: bool = False
     metrics_port: int = 9090
 
+    # OpenTelemetry / OTLP span export (trace-native, Mandala 0.3+)
+    # When set, every MandalaEvent is also shipped as an OTel span to the
+    # configured OTLP/HTTP collector. Shipment-subjects auto-correlate into
+    # a single trace. Zero overhead when empty.
+    # Example: http://otel-collector:4318/v1/traces
+    otlp_endpoint: str = ""
+    otlp_service_name: str = "mandala"
+
     # Misc
     log_level: str = "INFO"
     state_ttl_seconds: int = 14 * 86_400
