@@ -163,6 +163,20 @@ class Settings(BaseSettings):
     iceberg_table: str = "mandala.events"
     iceberg_namespace: str = "mandala"
 
+    # --- Detector Sandbox (Feature 3) ---
+    # Timeout and circuit breaker protection for detectors
+    detector_sandbox_enabled: bool = True
+    detector_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    detector_circuit_breaker_threshold: int = Field(default=5, ge=1, le=50)
+    detector_circuit_breaker_timeout: float = Field(default=60.0, ge=10.0, le=600.0)
+
+    # --- Adaptive Backpressure (Feature 4) ---
+    # Resource-aware backpressure based on system health
+    adaptive_backpressure_enabled: bool = True
+    redis_latency_threshold_ms: float = Field(default=100.0, ge=10.0, le=1000.0)
+    memory_threshold_percent: float = Field(default=80.0, ge=50.0, le=95.0)
+    cpu_threshold_percent: float = Field(default=80.0, ge=50.0, le=95.0)
+
     # --- Zero-Knowledge Proofs (Feature 2) ---
     # Privacy-preserving verification for insurance/customs/audits
     zk_enabled: bool = False

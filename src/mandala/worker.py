@@ -21,10 +21,12 @@ import structlog
 
 from mandala.alerts import DETECTORS as ALERT_DETECTORS
 from mandala.connectors.samsara.outbound import SamsaraOutboundClient
+from mandala.core.adaptive_backpressure import AdaptiveBackpressure
 from mandala.core.alert_aggregation import AlertAggregator
 from mandala.core.alert_routing import AlertRouter
 from mandala.core.bus import RedisStreamsBus
 from mandala.core.dead_letter import DeadLetterQueue
+from mandala.core.detector_sandbox import DetectorSandboxPool
 from mandala.core.events.envelope import MandalaEvent
 from mandala.core.observability import get_exporter
 from mandala.core.metrics import (
@@ -96,6 +98,12 @@ async def run() -> None:
     alert_router = AlertRouter()
     alert_aggregator = AlertAggregator(r)
     consumer = f"{socket.gethostname()}-{os.getpid()}"
+    
+    # Detector sandbox for timeout and circuit breaker protection
+    detector_sandbox = DetectorSandboxPool(DETECTORS)
+    
+    # Adaptive backpressure for resource-aware processing
+    adaptive_backpressure = AdaptiveBackpressure(r)
     
     # Samsara outbound client (optional)
     samsara_outbound: SamsaraOutboundClient | None = None
@@ -203,87 +211,81 @@ async def run() -> None:
                             await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
                             continue
 
-                        # Run detectors in parallel (4th-gen optimization)
-                        # Detection latency drops from sum-of-detectors to max-of-detectors
-                        async def run_detector(detector):
-                            detector_start = datetime.now(timezone.utc)
-                            try:
-                                new_events = await detector(event, state, r)
-                                detector_duration = (datetime.now(timezone.utc) - detector_start).total_seconds()
-                                detector_execution_duration_seconds.labels(detector_name=detector.__name__).observe(detector_duration)
-                                detector_executions_total.labels(detector_name=detector.__name__, status="success").inc()
+                        # Run detectors in parallel with sandbox protection
+                        # Sandbox provides timeout and circuit breaker protection
+                        detector_start = datetime.now(timezone.utc)
+                        try:
+                            new_events = await detector_sandbox.execute_all(event, state, r)
+                            detector_duration = (datetime.now(timezone.utc) - detector_start).total_seconds()
+                            detector_execution_duration_seconds.labels(detector_name="all").observe(detector_duration)
+                            
+                            for ne in new_events:
+                                # Set processed_at timestamp for three-timestamp accounting
+                                ne.processed_at = datetime.now(timezone.utc)
+                                # Trace-native: link detector-emitted spans to the
+                                # ingest span (causal parent) so the OTel trace shows
+                                # the full causality chain in any backend.
+                                if ne.parent_span_id is None and event.span_id:
+                                    ne.parent_span_id = event.span_id
+                                otlp.emit(ne)
+                                # Detector-emitted events have a fresh `time` per
+                                # invocation, so the bus-layer dedup key would never
+                                # match. Disable it here; webhook layer is the
+                                # authoritative dedup boundary for ingest.
+                                published_id = await bus.publish(
+                                    s.stream_inbound, ne, enable_deduplication=False
+                                )
+                                if not published_id:
+                                    # Dropped as duplicate — don't inflate metrics.
+                                    continue
+                                events_processed_total.labels(event_type=ne.type, detector="sandbox").inc()
                                 
-                                for ne in new_events:
-                                    # Set processed_at timestamp for three-timestamp accounting
-                                    ne.processed_at = datetime.now(timezone.utc)
-                                    # Trace-native: link detector-emitted spans to the
-                                    # ingest span (causal parent) so the OTel trace shows
-                                    # the full causality chain in any backend.
-                                    if ne.parent_span_id is None and event.span_id:
-                                        ne.parent_span_id = event.span_id
-                                    otlp.emit(ne)
-                                    # Detector-emitted events have a fresh `time` per
-                                    # invocation, so the bus-layer dedup key would never
-                                    # match. Disable it here; webhook layer is the
-                                    # authoritative dedup boundary for ingest.
-                                    published_id = await bus.publish(
-                                        s.stream_inbound, ne, enable_deduplication=False
-                                    )
-                                    if not published_id:
-                                        # Dropped as duplicate — don't inflate metrics.
-                                        continue
-                                    events_processed_total.labels(event_type=ne.type, detector=detector.__name__).inc()
-                                    
-                                    # Push alerts back to Samsara if enabled
-                                    if samsara_outbound and ne.type.startswith("mandala.alert"):
-                                        await _push_to_samsara(samsara_outbound, ne)
-                                    
-                                    # Route alerts to external channels if enabled
-                                    if s.alert_routing_enabled and ne.type.startswith("mandala.alert"):
-                                        # Check aggregation before routing
-                                        if await alert_aggregator.should_route(ne):
-                                            route_start = datetime.now(timezone.utc)
-                                            await alert_router.route(ne)
-                                            route_duration = (datetime.now(timezone.utc) - route_start).total_seconds()
-                                            alert_routing_duration_seconds.labels(channel="external").observe(route_duration)
-                                            alerts_routed_total.labels(channel="external", status="success").inc()
-                                        else:
-                                            log.debug(
-                                                "alert.aggregated.skipped_routing",
-                                                alert_type=ne.type,
-                                            )
-                                    
-                                    # Enqueue ZK proof generation for cold-chain breaches (if enabled)
-                                    if proving_service and ne.type == "mandala.alert.cold_chain.out_of_spec":
-                                        data = ne.data if isinstance(ne.data, dict) else {}
-                                        await proving_service.enqueue_proof_request(
-                                            event=ne,
-                                            proof_params={
-                                                "declared_min_c": data.get("declared_min_c", 2.0),
-                                                "declared_max_c": data.get("declared_max_c", 8.0),
-                                                "breach_timestamp": ne.time,
-                                            },
+                                # Push alerts back to Samsara if enabled
+                                if samsara_outbound and ne.type.startswith("mandala.alert"):
+                                    await _push_to_samsara(samsara_outbound, ne)
+                                
+                                # Route alerts to external channels if enabled
+                                if s.alert_routing_enabled and ne.type.startswith("mandala.alert"):
+                                    # Check aggregation before routing
+                                    if await alert_aggregator.should_route(ne):
+                                        route_start = datetime.now(timezone.utc)
+                                        await alert_router.route(ne)
+                                        route_duration = (datetime.now(timezone.utc) - route_start).total_seconds()
+                                        alert_routing_duration_seconds.labels(channel="external").observe(route_duration)
+                                        alerts_routed_total.labels(channel="external", status="success").inc()
+                                    else:
+                                        log.debug(
+                                            "alert.aggregated.skipped_routing",
+                                            alert_type=ne.type,
                                         )
-                                        log.info("zk.proof.auto_enqueued", event_id=ne.id)
-                            except Exception as exc:  # noqa: BLE001
-                                detector_duration = (datetime.now(timezone.utc) - detector_start).total_seconds()
-                                detector_execution_duration_seconds.labels(detector_name=detector.__name__).observe(detector_duration)
-                                detector_executions_total.labels(detector_name=detector.__name__, status="failure").inc()
-                                log.exception(
-                                    "mandala.worker.detector_failed",
-                                    detector=detector.__name__,
-                                    event_id=event.id,
-                                    error=str(exc),
-                                )
-                                await dlq.publish(
-                                    event,
-                                    str(exc),
-                                    "detector",
-                                    metadata={"detector": detector.__name__},
-                                )
-                                dlq_events_total.labels(context="detector").inc()
-
-                        await asyncio.gather(*[run_detector(detector) for detector in DETECTORS], return_exceptions=True)
+                                
+                                # Enqueue ZK proof generation for cold-chain breaches (if enabled)
+                                if proving_service and ne.type == "mandala.alert.cold_chain.out_of_spec":
+                                    data = ne.data if isinstance(ne.data, dict) else {}
+                                    await proving_service.enqueue_proof_request(
+                                        event=ne,
+                                        proof_params={
+                                            "declared_min_c": data.get("declared_min_c", 2.0),
+                                            "declared_max_c": data.get("declared_max_c", 8.0),
+                                            "breach_timestamp": ne.time,
+                                        },
+                                    )
+                                    log.info("zk.proof.auto_enqueued", event_id=ne.id)
+                        except Exception as exc:  # noqa: BLE001
+                            detector_duration = (datetime.now(timezone.utc) - detector_start).total_seconds()
+                            detector_execution_duration_seconds.labels(detector_name="sandbox").observe(detector_duration)
+                            log.exception(
+                                "mandala.worker.detector_sandbox_failed",
+                                event_id=event.id,
+                                error=str(exc),
+                            )
+                            await dlq.publish(
+                                event,
+                                str(exc),
+                                "detector",
+                                metadata={"context": "sandbox"},
+                            )
+                            dlq_events_total.labels(context="detector").inc()
 
                         event_duration = (datetime.now(timezone.utc) - event_start).total_seconds()
                         events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(event_duration)
