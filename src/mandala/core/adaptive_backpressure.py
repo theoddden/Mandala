@@ -24,10 +24,10 @@ class AdaptiveBackpressure:
         self._redis = redis
         self._settings = get_settings()
         
-        # Health thresholds
-        self._redis_latency_threshold_ms = 100.0
-        self._memory_threshold_percent = 80.0
-        self._cpu_threshold_percent = 80.0
+        # Health thresholds from settings
+        self._redis_latency_threshold_ms = self._settings.redis_latency_threshold_ms
+        self._memory_threshold_percent = self._settings.memory_threshold_percent
+        self._cpu_threshold_percent = self._settings.cpu_threshold_percent
         
         # Adaptive batch size
         self._base_batch_size = self._settings.stream_batch_size

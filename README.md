@@ -102,6 +102,9 @@ Typically 20-line scripts. Mandala ships optional utilities
 | `core/hmac.py` | Webhook signature verification with replay protection |
 | `core/dead_letter.py` | DLQ with retry policy |
 | `core/alert_routing.py` | Slack / email / SMS / PagerDuty / webhook fan-out |
+| `core/detector_sandbox.py` | Timeout and circuit breaker protection for detectors |
+| `core/replay.py` | Event replay from Iceberg or Redis Stream for bug fixes |
+| `core/adaptive_backpressure.py` | Resource-aware backpressure based on system health |
 | `views/{geospatial,bitmap,timeseries,graph}.py` | Materialized views over the stream |
 | `mcp/server.py` | MCP stdio server for LLM agents |
 
@@ -462,7 +465,41 @@ mandala serve     # FastAPI webhook ingest
 mandala worker    # event loop: project + detect + alert + OTLP-emit
 mandala views     # materialized views runner
 mandala mcp       # MCP stdio server for LLMs
+mandala replay    # replay historical events to fix state after bugs
 ```
+
+## Production reliability features
+
+### Detector Sandbox
+All detectors run with timeout and circuit breaker protection to prevent a single buggy detector from blocking the entire worker:
+
+- **Timeout protection**: Each detector has a configurable timeout (default 30s for standard detectors, 60s for ML/FMCSA detectors)
+- **Circuit breaker**: Detectors that fail repeatedly are automatically tripped open and stop executing until they recover
+- **Configuration**: `MANDALA_DETECTOR_SANDBOX_ENABLED`, `MANDALA_DETECTOR_TIMEOUT_SECONDS`, `MANDALA_DETECTOR_CIRCUIT_BREAKER_THRESHOLD`
+
+### Event Replay
+When you discover a bug in projection logic or detectors, you can replay historical events to correct state:
+
+```bash
+# Replay from Iceberg event log (requires MANDALA_EVENT_LOG_ENABLED=1)
+mandala replay --from 2026-04-01T00:00:00Z --to 2026-04-15T23:59:59Z --dry-run
+
+# Replay specific entity
+mandala replay --entity "urn:mandala:truck:402" --from 2026-05-01T00:00:00Z --to 2026-05-11T23:59:59Z
+
+# Replay recent events from Redis Stream (no Iceberg required)
+mandala replay --stream --count 1000
+```
+
+Replay respects idempotency keys, so duplicate events are automatically skipped.
+
+### Adaptive Backpressure
+The worker monitors system health (Redis latency, memory usage, CPU load) and adapts processing accordingly:
+
+- **Health checks**: Monitors Redis latency, memory percent, CPU percent
+- **Adaptive batch sizing**: Reduces batch size when system is degraded
+- **Ingestion rejection**: Rejects new events when system is critically degraded
+- **Configuration**: `MANDALA_ADAPTIVE_BACKPRESSURE_ENABLED`, `MANDALA_REDIS_LATENCY_THRESHOLD_MS`, `MANDALA_MEMORY_THRESHOLD_PERCENT`, `MANDALA_CPU_THRESHOLD_PERCENT`
 
 ## Self-implemented data ingestion
 

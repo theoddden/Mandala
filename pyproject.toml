@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mandala"
 version = "0.1.0"
-description = "Open-source event bridge between Samsara fleet telemetry and Descartes GLN customs/trade platforms."
+description = "Open-source logistics event bridge with detector sandbox, event replay, and adaptive backpressure. Connects Samsara fleet telemetry, Descartes customs, Vizion rail, FMCSA safety, and fuel-card networks via OpenTelemetry spans and MCP tools."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Mandala Contributors" }]
