@@ -31,6 +31,7 @@ from mandala.settings import get_settings
 try:
     from mandala_rust_ext import h3_hash as rust_h3_hash
     from mandala_rust_ext import h3_hash_time_bound as rust_h3_hash_time_bound
+
     _RUST_EXT_AVAILABLE = True
 except ImportError:
     _RUST_EXT_AVAILABLE = False

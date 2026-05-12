@@ -62,6 +62,7 @@ try:
     from mandala_rust_ext import (
         derive_trace_id as rust_derive_trace_id,
     )
+
     _RUST_EXT_AVAILABLE = True
 except ImportError:
     _RUST_EXT_AVAILABLE = False

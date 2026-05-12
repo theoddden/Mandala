@@ -23,6 +23,7 @@ from typing import Literal
 # Try to import Rust-accelerated implementation
 try:
     from mandala_rust_ext import verify_hmac_sha256 as rust_verify_hmac_sha256
+
     _RUST_EXT_AVAILABLE = True
 except ImportError:
     _RUST_EXT_AVAILABLE = False
