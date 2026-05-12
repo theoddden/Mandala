@@ -173,7 +173,7 @@ class AdaptiveBackpressure:
 class BackpressureMiddleware:
     """Middleware for applying backpressure at the API level."""
 
-    def __init__(self, backpressure: AdaptiveBackpressure) -> None:
+    def __init__(self, backpressure: AdaptiveBackpressure | None = None) -> None:
         self._backpressure = backpressure
 
     async def check_before_ingest(self) -> tuple[bool, int, str]:
@@ -182,6 +182,9 @@ class BackpressureMiddleware:
         Returns:
             (should_proceed, status_code, reason)
         """
+        if not self._backpressure:
+            return True, 200, "Adaptive backpressure not configured"
+
         should_accept, reason = await self._backpressure.should_accept_new_event()
 
         if not should_accept:

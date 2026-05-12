@@ -116,24 +116,44 @@ class GeometricHashService:
         longitude: float,
         event_time: datetime | None = None,
     ) -> str:
-        """Compute S2 cell ID hash."""
+        """Compute S2 cell ID hash.
+        
+        NOTE: This is a simplified implementation that falls back to geohash encoding
+        when the s2geometry library is not available. For production use with actual
+        S2 geometry, install the s2geometry library and this will use it.
+        """
         import math
         
-        # Convert lat/lon to S2 point
-        lat_rad = math.radians(latitude)
-        lng_rad = math.radians(longitude)
-        
-        # S2 cell ID at resolution (using S2's Level 0-30)
-        # For simplicity, we use a string-based approach if s2 library is complex
-        s2_cell = f"s2:{self._resolution}:{lat_rad:.6f}:{lng_rad:.6f}"
-        
-        # Bind to event time
-        if event_time:
-            time_binding = event_time.isoformat()
-            combined = f"{s2_cell}:{time_binding}"
-            return hashlib.sha256(combined.encode()).hexdigest()[:16]
-        
-        return hashlib.sha256(s2_cell.encode()).hexdigest()[:16]
+        # Try to use s2geometry library if available
+        try:
+            from s2 import s2
+            from s2.geometry import S2LatLng
+            from s2 import s2cellid
+            
+            # Convert lat/lon to S2LatLng
+            lat_lng = S2LatLng.FromDegrees(latitude, longitude)
+            
+            # Get S2 cell ID at resolution
+            cell_id = lat_lng.ToPoint().ToS2CellId(self._resolution)
+            
+            # Use cell ID as hash
+            s2_cell_str = str(cell_id)
+            
+            # Bind to event time
+            if event_time:
+                time_binding = event_time.isoformat()
+                combined = f"{s2_cell_str}:{time_binding}"
+                return hashlib.sha256(combined.encode()).hexdigest()[:16]
+            
+            return hashlib.sha256(s2_cell_str.encode()).hexdigest()[:16]
+            
+        except ImportError:
+            # Fallback to geohash-like encoding when s2geometry not available
+            log.warning(
+                "s2_library_not_available",
+                message="s2geometry library not installed, using fallback encoding",
+            )
+            return self._geohash_fallback(latitude, longitude, event_time)
     
     def _geohash_fallback(
         self,

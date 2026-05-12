@@ -364,32 +364,32 @@ class ReorderBuffer:
         state of the asset, insert the missing data point, and re-calculate
         the trajectory.
         
-        This is a simplified implementation - production would need:
-        - Event sourcing with full event log
-        - State snapshots at intervals
-        - Incremental re-computation
+        **STUB IMPLEMENTATION:** This is a simplified placeholder. Full implementation requires:
+        - Event sourcing with full event log (Iceberg or Redis Stream)
+        - State snapshots at intervals for performance
+        - Incremental re-computation of derived state
+        - Detector re-execution from the rewind point
+        
+        Current behavior: Resets the next expected time and clears the buffer.
+        This allows new events to be processed from the rewind point, but does
+        not actually revert previously committed state.
         
         Args:
             source_id: Entity identifier
             rewind_to: Point in time to rewind to
-            state_store: Optional StateStore to rewind
+            state_store: Optional StateStore to rewind (currently unused)
         
         Returns:
             Metadata about the rewind operation
         """
-        log.info(
-            "reorder_buffer.rewind_state",
+        log.warning(
+            "reorder_buffer.rewind_state_stub",
             source_id=source_id,
-            rewind_to=rewind_to,
+            rewind_to=rewind_to.isoformat(),
+            message="State rewinding is not fully implemented - only buffer is cleared",
         )
         
-        # In a full implementation, this would:
-        # 1. Load the event log for this entity
-        # 2. Re-play events up to rewind_to
-        # 3. Update the state store
-        # 4. Re-run detectors from that point
-        
-        # For now, we just reset the next expected time
+        # For now, we just reset the next expected time and clear buffer
         async with self._lock:
             self._next_expected[source_id] = rewind_to
             # Clear buffer to force re-processing
@@ -399,6 +399,8 @@ class ReorderBuffer:
             "source_id": source_id,
             "rewound_to": rewind_to.isoformat(),
             "buffer_cleared": True,
+            "state_reverted": False,  # STUB: actual state reversion not implemented
+            "note": "Full state rewinding requires event sourcing implementation",
         }
 
 
