@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from mandala.core.events.envelope import MandalaEvent, new_event
 
@@ -171,8 +172,9 @@ async def test_iceberg_event_log_query_with_time_range():
     """Test IcebergEventLog query with time range filter."""
     pytest.importorskip("pyiceberg")
 
-    from mandala.core.event_log import IcebergEventLog
     from datetime import UTC, datetime
+
+    from mandala.core.event_log import IcebergEventLog
 
     mock_catalog = Mock()
     mock_table = Mock()
@@ -204,8 +206,9 @@ async def test_iceberg_event_log_query_time_travel():
     """Test IcebergEventLog query with time travel."""
     pytest.importorskip("pyiceberg")
 
-    from mandala.core.event_log import IcebergEventLog
     from datetime import UTC, datetime
+
+    from mandala.core.event_log import IcebergEventLog
 
     mock_catalog = Mock()
     mock_table = Mock()

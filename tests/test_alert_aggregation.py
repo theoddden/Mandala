@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from mandala.core.events.envelope import MandalaEvent, new_event
 
@@ -233,9 +234,9 @@ async def test_should_route_disabled():
 @pytest.mark.asyncio
 async def test_should_route_new_window():
     """Test should_route with new aggregation window."""
-    from mandala.core.alert_aggregation import AlertAggregator
-
     import json
+
+    from mandala.core.alert_aggregation import AlertAggregator
 
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(return_value=None)
@@ -258,9 +259,9 @@ async def test_should_route_new_window():
 @pytest.mark.asyncio
 async def test_should_route_existing_window():
     """Test should_route with existing aggregation window."""
-    from mandala.core.alert_aggregation import AlertAggregator
-
     import json
+
+    from mandala.core.alert_aggregation import AlertAggregator
 
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(return_value=json.dumps({"count": 1, "alert_ids": ["old-id"]}))
@@ -301,9 +302,9 @@ async def test_is_suppressed_no_windows():
 @pytest.mark.asyncio
 async def test_is_suppressed_active_window():
     """Test _is_suppressed with active suppression window."""
-    from mandala.core.alert_aggregation import AlertAggregator
+    from datetime import timedelta
 
-    from datetime import UTC, datetime, timedelta
+    from mandala.core.alert_aggregation import AlertAggregator
 
     mock_redis = AsyncMock()
     mock_settings = Mock()
@@ -326,9 +327,9 @@ async def test_is_suppressed_active_window():
 @pytest.mark.asyncio
 async def test_is_suppressed_inactive_window():
     """Test _is_suppressed with inactive suppression window."""
-    from mandala.core.alert_aggregation import AlertAggregator
+    from datetime import timedelta
 
-    from datetime import UTC, datetime, timedelta
+    from mandala.core.alert_aggregation import AlertAggregator
 
     mock_redis = AsyncMock()
     mock_settings = Mock()
@@ -351,9 +352,9 @@ async def test_is_suppressed_inactive_window():
 @pytest.mark.asyncio
 async def test_get_aggregated_alerts():
     """Test get_aggregated_alerts method."""
-    from mandala.core.alert_aggregation import AlertAggregator
-
     import json
+
+    from mandala.core.alert_aggregation import AlertAggregator
 
     mock_redis = AsyncMock()
     mock_redis.scan = AsyncMock(return_value=(0, [b"mandala:alert:aggregation:test.alert:entity:high"]))
@@ -383,9 +384,9 @@ async def test_get_aggregated_alerts_empty():
 @pytest.mark.asyncio
 async def test_flush_aggregation():
     """Test flush_aggregation method."""
-    from mandala.core.alert_aggregation import AlertAggregator
-
     import json
+
+    from mandala.core.alert_aggregation import AlertAggregator
 
     mock_redis = AsyncMock()
     mock_redis.get = AsyncMock(return_value=json.dumps({"count": 5, "alert_ids": ["id1", "id2"]}))
