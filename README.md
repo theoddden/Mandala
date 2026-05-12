@@ -32,6 +32,20 @@ LLM agents.
                           (every shipment is a trace)
 ```
 
+## Event Lifecycle
+
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌─────────────┐
+│   INGEST    │───▶│    LATCH     │───▶│    SIEVE    │───▶│    TRACE    │
+│ Webhook/    │    │ Event-time   │    │ Detectors   │    │ OTLP Span   │
+│ POST /events│    │ Determinism  │    │ + Alerts    │    │ Export      │
+└─────────────┘    └──────────────┘    └─────────────┘    └─────────────┘
+     │                   │                   │                   │
+     ▼                   ▼                   ▼                   ▼
+  Raw Vendor      Out-of-order      State Store        Jaeger / Tempo
+  Payload         Detection          Projection          Honeycomb / Datadog
+```
+
 ## What's new in 0.3
 
 - **Trace-native envelope.** Every `MandalaEvent` is an OpenTelemetry span.
@@ -581,6 +595,13 @@ Claude Desktop config (`~/.claude/claude_desktop_config.json`):
 Tools: `get_shipment`, `get_truck`, `check_customs_status`,
 `get_recent_alerts`, `get_fleet_near_border`, `get_trucks_at_poe_without_filing`,
 `get_cold_chain_breaches`, `get_entity_neighbors`.
+
+**Example: Fleet optimization in 30 seconds**
+
+```
+Export dbt-mandala/mart_fleet_performance.csv, then ask Claude:
+"Analyze this fleet data and identify the 3 highest-impact opportunities to reduce dwell time at Laredo POE."
+```
 
 ### Step 8: (Optional) Additional connectors
 
