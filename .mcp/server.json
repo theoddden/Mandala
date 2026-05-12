@@ -3,8 +3,8 @@
   "version": "1.0",
   "serverInfo": {
     "name": "mandala",
-    "version": "0.1.0",
-    "description": "Open-source event bridge between Samsara fleet telemetry and Descartes GLN customs/trade platforms."
+    "version": "0.3.0",
+    "description": "Open-source event-sourced logistics integration bridge with trace-native OTel spans, deterministic event-time windowing, and MCP tools for LLM agents."
   },
   "repository": {
     "type": "github",

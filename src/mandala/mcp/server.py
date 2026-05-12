@@ -224,6 +224,214 @@ async def tool_get_dead_zones_near(lat: float, lon: float, radius_km: float = 50
         await r.aclose()
 
 
+async def tool_replay_events(
+    from_dt: str,
+    to_dt: str,
+    entity_urn: str | None = None,
+    dry_run: bool = False,
+    count: int = 1000,
+) -> dict[str, Any]:
+    """Replay historical events to fix state after bugs. Can replay from Redis Stream (recent events)."""
+    from datetime import datetime
+
+    from mandala.core.replay import replay_from_stream
+
+    settings = get_settings()
+    r = redis.from_url(settings.redis_url, decode_responses=False)
+    state = StateStore(r)
+
+    try:
+        # Replay from Redis Stream (recent events)
+        stats = await replay_from_stream(r, state, settings.stream_inbound, count, dry_run)
+        return stats
+    finally:
+        await r.aclose()
+
+
+async def tool_query_event_log(
+    subject: str | None = None,
+    event_type: str | None = None,
+    from_dt: str | None = None,
+    to_dt: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Query the Iceberg event log with filters (if enabled)."""
+    from datetime import datetime
+
+    from mandala.core.event_log import get_event_log
+
+    event_log = get_event_log()
+    if not event_log:
+        return {"error": "Event log not configured. Set MANDALA_EVENT_LOG_ENABLED=1"}
+
+    try:
+        time_range = None
+        if from_dt and to_dt:
+            time_range = (datetime.fromisoformat(from_dt), datetime.fromisoformat(to_dt))
+
+        events = []
+        async for event in event_log.query(
+            subject=subject, event_type=event_type, time_range=time_range
+        ):
+            events.append(event.model_dump_json(exclude_none=True, by_alias=True))
+            if len(events) >= limit:
+                break
+
+        return {"events": events, "count": len(events)}
+    except Exception as exc:
+        return {"error": str(exc), "events": [], "count": 0}
+
+
+async def tool_inspect_dlq(limit: int = 50) -> dict[str, Any]:
+    """Inspect the Dead Letter Queue for failed events."""
+    from mandala.core.dead_letter import DeadLetterQueue
+
+    settings = get_settings()
+    r = redis.from_url(settings.redis_url, decode_responses=False)
+    try:
+        dlq = DeadLetterQueue(r)
+        failed_events = await dlq.read(count=limit)
+        stats = await dlq.stats()
+        return {"dlq_stats": stats, "events": failed_events}
+    finally:
+        await r.aclose()
+
+
+async def tool_health_check() -> dict[str, Any]:
+    """Return health status of Mandala components (Redis, stream, event log)."""
+    from mandala.core.event_log import get_event_log
+
+    settings = get_settings()
+    r = redis.from_url(settings.redis_url, decode_responses=False)
+    try:
+        # Check Redis connectivity
+        await r.ping()
+        health_status: dict[str, Any] = {"status": "healthy", "checks": {"redis": "ok"}}
+
+        # Check stream health
+        try:
+            info = await r.xinfo_stream(settings.stream_inbound)
+            health_status["checks"]["stream"] = "ok"
+            health_status["checks"]["stream_length"] = info.get("length", 0)
+            health_status["checks"]["stream_groups"] = info.get("groups", 0)
+        except Exception:
+            health_status["checks"]["stream"] = "failed"
+            health_status["status"] = "degraded"
+
+        # Check event log
+        event_log = get_event_log()
+        if event_log:
+            health_status["checks"]["event_log"] = "enabled"
+        else:
+            health_status["checks"]["event_log"] = "disabled"
+
+        return health_status
+    except Exception as exc:
+        return {"status": "unhealthy", "error": str(exc), "checks": {"redis": "failed"}}
+    finally:
+        await r.aclose()
+
+
+async def tool_get_connector_status() -> dict[str, Any]:
+    """Return configuration status of all Mandala connectors."""
+    settings = get_settings()
+    return {
+        "samsara": {
+            "webhook_configured": bool(settings.samsara_webhook_secret),
+            "outbound_enabled": settings.samsara_outbound_enabled,
+            "api_token_configured": bool(settings.samsara_api_token),
+        },
+        "descartes": {
+            "webhook_configured": bool(settings.descartes_webhook_secret),
+            "api_key_configured": bool(settings.descartes_api_key),
+        },
+        "cargowise": {
+            "webhook_configured": bool(settings.cargowise_webhook_secret),
+            "eadaptor_configured": bool(settings.cargowise_eadaptor_url),
+        },
+        "vizion": {"api_key_configured": bool(settings.vizion_api_key)},
+        "loadboard": {
+            "enabled": settings.loadboard_enabled,
+            "dat_configured": bool(settings.dat_client_id and settings.dat_client_secret),
+        },
+        "fmcsa": {"enabled": True},  # FMCSA uses public API, always enabled
+        "fuel_cards": {
+            "coast_configured": bool(settings.coast_api_key),
+            "fleetcor_configured": bool(settings.fleetcor_api_key),
+            "wex_configured": bool(settings.wex_api_key),
+            "efs_configured": bool(settings.efs_api_key),
+        },
+    }
+
+
+async def tool_query_zk_proofs(proof_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+    """Query ZK proof status for cold-chain breaches (if ZK is enabled)."""
+    settings = get_settings()
+    if not settings.zk_enabled:
+        return {"error": "ZK proving not enabled. Set MANDALA_ZK_ENABLED=1"}
+
+    # ZK proofs are stored as events in the event log
+    from mandala.core.event_log import get_event_log
+
+    event_log = get_event_log()
+    if not event_log:
+        return {"error": "Event log not configured. ZK proofs require event log."}
+
+    try:
+        events = []
+        async for event in event_log.query(event_type="mandala.zk.proof.generated"):
+            events.append(event.model_dump_json(exclude_none=True, by_alias=True))
+            if len(events) >= limit:
+                break
+
+        if proof_id:
+            events = [e for e in events if e.get("data", {}).get("proof_id") == proof_id]
+
+        return {"proofs": events, "count": len(events)}
+    except Exception as exc:
+        return {"error": str(exc), "proofs": [], "count": 0}
+
+
+async def tool_validate_schema(schema_path: str) -> dict[str, Any]:
+    """Validate a Mandala vendor schema file."""
+    from pathlib import Path
+
+    schema_file = Path(schema_path)
+    if not schema_file.exists():
+        return {"error": f"Schema file not found: {schema_path}"}
+
+    try:
+        import yaml
+
+        with open(schema_file) as f:
+            schema = yaml.safe_load(f)
+
+        # Check required fields
+        required_fields = ["vendor", "canonical_type", "description", "mapping", "example_vendor_payload", "required_fields"]
+        missing = [f for f in required_fields if f not in schema]
+        if missing:
+            return {"valid": False, "error": f"Missing required fields: {missing}"}
+
+        # Validate mapping is a dict
+        if not isinstance(schema.get("mapping"), dict):
+            return {"valid": False, "error": "Mapping must be a dictionary"}
+
+        # Validate required_fields is a list
+        if not isinstance(schema.get("required_fields"), list):
+            return {"valid": False, "error": "required_fields must be a list"}
+
+        return {
+            "valid": True,
+            "vendor": schema.get("vendor"),
+            "canonical_type": schema.get("canonical_type"),
+            "mapping_fields": len(schema.get("mapping", {})),
+        }
+    except ImportError:
+        return {"valid": False, "error": "PyYAML not installed. Install with: pip install pyyaml"}
+    except Exception as exc:
+        return {"valid": False, "error": str(exc)}
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     from math import asin, cos, radians, sin, sqrt
 
@@ -373,6 +581,73 @@ def build_server():  # type: ignore[no-untyped-def]
                     "required": ["lat", "lon"],
                 },
             ),
+            Tool(
+                name="replay_events",
+                description="Replay historical events from Redis Stream to fix state after bugs.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "from_dt": {"type": "string", "description": "Start datetime (ISO format)"},
+                        "to_dt": {"type": "string", "description": "End datetime (ISO format)"},
+                        "entity_urn": {"type": "string", "description": "Replay for specific entity URN only"},
+                        "dry_run": {"type": "boolean", "default": False, "description": "Don't write to state"},
+                        "count": {"type": "integer", "default": 1000, "description": "Number of events to replay"},
+                    },
+                    "required": ["from_dt", "to_dt"],
+                },
+            ),
+            Tool(
+                name="query_event_log",
+                description="Query the Iceberg event log with filters (if enabled).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "subject": {"type": "string", "description": "Filter by subject URN"},
+                        "event_type": {"type": "string", "description": "Filter by event type"},
+                        "from_dt": {"type": "string", "description": "Start datetime (ISO format)"},
+                        "to_dt": {"type": "string", "description": "End datetime (ISO format)"},
+                        "limit": {"type": "integer", "default": 100},
+                    },
+                },
+            ),
+            Tool(
+                name="inspect_dlq",
+                description="Inspect the Dead Letter Queue for failed events.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "default": 50}},
+                },
+            ),
+            Tool(
+                name="health_check",
+                description="Return health status of Mandala components (Redis, stream, event log).",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="get_connector_status",
+                description="Return configuration status of all Mandala connectors.",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="query_zk_proofs",
+                description="Query ZK proof status for cold-chain breaches (if ZK is enabled).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "proof_id": {"type": "string", "description": "Filter by specific proof ID"},
+                        "limit": {"type": "integer", "default": 50},
+                    },
+                },
+            ),
+            Tool(
+                name="validate_schema",
+                description="Validate a Mandala vendor schema file.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"schema_path": {"type": "string"}},
+                    "required": ["schema_path"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -412,6 +687,35 @@ def build_server():  # type: ignore[no-untyped-def]
                 radius_km=float(arguments.get("radius_km", 50.0)),
                 limit=int(arguments.get("limit", 100)),
             )
+        elif name == "replay_events":
+            result = await tool_replay_events(
+                from_dt=arguments["from_dt"],
+                to_dt=arguments["to_dt"],
+                entity_urn=arguments.get("entity_urn"),
+                dry_run=bool(arguments.get("dry_run", False)),
+                count=int(arguments.get("count", 1000)),
+            )
+        elif name == "query_event_log":
+            result = await tool_query_event_log(
+                subject=arguments.get("subject"),
+                event_type=arguments.get("event_type"),
+                from_dt=arguments.get("from_dt"),
+                to_dt=arguments.get("to_dt"),
+                limit=int(arguments.get("limit", 100)),
+            )
+        elif name == "inspect_dlq":
+            result = await tool_inspect_dlq(limit=int(arguments.get("limit", 50)))
+        elif name == "health_check":
+            result = await tool_health_check()
+        elif name == "get_connector_status":
+            result = await tool_get_connector_status()
+        elif name == "query_zk_proofs":
+            result = await tool_query_zk_proofs(
+                proof_id=arguments.get("proof_id"),
+                limit=int(arguments.get("limit", 50)),
+            )
+        elif name == "validate_schema":
+            result = await tool_validate_schema(schema_path=arguments["schema_path"])
         else:
             raise ValueError(f"unknown tool: {name}")
         return [TextContent(type="text", text=json.dumps(result, default=str, indent=2))]
