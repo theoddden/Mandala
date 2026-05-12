@@ -43,6 +43,8 @@ class EventType(StrEnum):
     SHIPMENT_CANCELLED = "mandala.shipment.cancelled"
     SHIPMENT_ETA_UPDATED = "mandala.shipment.eta.updated"
     SHIPMENT_HANDOFF = "mandala.shipment.handoff.confirmed"
+    SHIPMENT_DOCK_READY = "mandala.shipment.dock.ready"
+    SHIPMENT_DOCK_BLOCKED = "mandala.shipment.dock.blocked"
 
     # --- Customs (Descartes GLN, CBP, SAT, CBSA) -------------------------
     CUSTOMS_FILED = "mandala.shipment.customs.filed"
@@ -68,6 +70,7 @@ class EventType(StrEnum):
 
     # --- Capacity / load board --------------------------------------------
     TRUCK_EMPTY = "mandala.truck.empty"
+    TRUCK_EMPTY_VERIFIED = "mandala.truck.empty.verified"
     TRUCK_AVAILABLE = "mandala.truck.available"
     LOADBOARD_POSTED = "mandala.loadboard.posted"
     LOADBOARD_POST_FAILED = "mandala.loadboard.post_failed"

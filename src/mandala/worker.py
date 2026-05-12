@@ -46,6 +46,7 @@ from mandala.core.reorder_buffer import ReorderBufferManager
 from mandala.core.state import StateStore
 from mandala.core.stator_latch import LatchDecision, StatorLatch
 from mandala.core.zk.proving_service import AsyncProvingService
+from mandala.detectors.warehouse import DETECTORS as WAREHOUSE_DETECTORS
 from mandala.fmcsa import DETECTORS as FMCSA_DETECTORS
 from mandala.loadboard import DETECTORS as LOADBOARD_DETECTORS
 from mandala.projection import project
@@ -62,7 +63,14 @@ if s.pii_detection_enabled:
 if s.change_tracking_enabled:
     change_tracker = ChangeTracker(enabled=True)
     COMPLIANCE_DETECTORS.append(change_tracker)
-
+(
+    
+   
+   
+   _DETECTORS
+    + WAREHOUSE
+   
+)
 DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETECTORS + COMPLIANCE_DETECTORS
 
 log = structlog.get_logger(__name__)
