@@ -4,6 +4,7 @@ Samsara sends a single POST with header ``X-Samsara-Signature`` containing
 an HMAC-SHA256 hex digest over the raw request body, signed with the
 shared secret configured in the Samsara webhook UI.
 """
+
 from __future__ import annotations
 
 import json
@@ -46,9 +47,7 @@ async def ingest_samsara_webhook(
     # fall back to the standard ``Date`` header for older signatures.
     if settings.webhook_timestamp_tolerance_sec > 0:
         ts = x_samsara_timestamp or date_header
-        if not is_timestamp_fresh(
-            ts, tolerance_sec=settings.webhook_timestamp_tolerance_sec
-        ):
+        if not is_timestamp_fresh(ts, tolerance_sec=settings.webhook_timestamp_tolerance_sec):
             log.warning("samsara.webhook.stale_timestamp", timestamp=ts)
             raise HTTPException(status_code=401, detail="stale or missing timestamp")
 
@@ -74,9 +73,7 @@ async def ingest_samsara_webhook(
     for event in events:
         # Set received_at timestamp for three-timestamp accounting
         event.received_at = received_at
-        key = event.mandalaingestid or hash_payload(
-            event.type, event.subject or "", body_fingerprint
-        )
+        key = event.mandalaingestid or hash_payload(event.type, event.subject or "", body_fingerprint)
         if not await idempotency.claim(key, ttl_seconds=86_400):
             log.info("samsara.webhook.duplicate", key=key, type=event.type)
             continue

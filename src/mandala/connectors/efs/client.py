@@ -2,6 +2,7 @@
 
 EFS (Electronic Fuel Systems) provides fuel card management with a REST API for transaction data.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

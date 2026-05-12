@@ -5,6 +5,7 @@ set ``MANDALA_SAMSARA_API_TOKEN``, point a Samsara webhook at
 ``/webhooks/samsara``, and you'll see normalized :class:`MandalaEvent`
 objects on the bus within minutes.
 """
+
 from mandala.connectors.samsara.connector import SamsaraConnector
 
 __all__ = ["SamsaraConnector"]

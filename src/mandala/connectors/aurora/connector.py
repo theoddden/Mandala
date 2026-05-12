@@ -5,6 +5,7 @@ Integration requires partnership via the Aurora Partner Program.
 
 See docs/integrations/aurora.md for full integration pattern.
 """
+
 from __future__ import annotations
 
 from mandala.connectors.base import BaseConnector

@@ -22,6 +22,7 @@ Both stages are guarded:
 * A per-truck debounce key prevents double-posting if the empty event is
   re-emitted within the 6h posting window.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,9 +49,7 @@ POST_DEBOUNCE_TTL_SECONDS = 21_600  # 6h: avoid re-posting after a re-trigger
 # ---------------------------------------------------------------------------
 
 
-async def detect_truck_empty(
-    event: MandalaEvent, state: StateStore, redis: object
-) -> list[MandalaEvent]:
+async def detect_truck_empty(event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
     """Translate a delivery confirmation into a ``mandala.truck.empty`` event."""
     if event.type != EventType.SHIPMENT_DELIVERED.value:
         return []
@@ -121,16 +120,12 @@ async def _post_to_dat(
     return {"board": "dat", "ok": True, "response": resp, "posting_id": resp.get("postingId")}
 
 
-
-
 _BOARDS = {
     "dat": _post_to_dat,
 }
 
 
-async def post_to_loadboards(
-    event: MandalaEvent, state: StateStore, redis: object
-) -> list[MandalaEvent]:
+async def post_to_loadboards(event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
     """Post a freshly-empty truck to every configured load board."""
     if event.type != EventType.TRUCK_EMPTY.value:
         return []
@@ -241,7 +236,7 @@ async def post_to_loadboards(
                         },
                     )
                 )
-            
+
             # Persist posting id for later expiry / lookups.
             if posting_id:
                 with contextlib.suppress(Exception):

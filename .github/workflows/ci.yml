@@ -100,7 +100,7 @@ jobs:
 
     - name: Run black formatter check
       run: |
-        black --check src/mandala tests/
+        black --check --target-version py311 src/mandala tests/
 
     - name: Run mypy type checker
       run: |

@@ -1,4 +1,5 @@
 """Runtime configuration. All env vars are namespaced ``MANDALA_*``."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -93,17 +94,28 @@ class Settings(BaseSettings):
     # Override these for high-volume deployments (1000+ trucks, high-frequency events)
     stream_batch_size: int = Field(default=10, ge=1, le=10000, description="Events per XREADGROUP batch")
     stream_block_ms: int = Field(default=5000, ge=0, le=60000, description="Block time in milliseconds for XREADGROUP")
-    max_concurrent_events: int = Field(default=50, ge=1, le=1000, description="Max events processed concurrently per worker")
+    max_concurrent_events: int = Field(
+        default=50, ge=1, le=1000, description="Max events processed concurrently per worker"
+    )
     stream_maxlen: int = Field(default=100_000, ge=1000, description="Max messages per Redis Stream (approximate)")
 
     # Backpressure handling (reject new events when overloaded)
     backpressure_enabled: bool = True
-    backpressure_threshold: int = Field(default=80_000, ge=0, le=1_000_000, description="Stream length threshold for backpressure (80% of maxlen by default)")
-    backpressure_response_code: int = Field(default=503, ge=400, le=599, description="HTTP status code when backpressure active")
+    backpressure_threshold: int = Field(
+        default=80_000,
+        ge=0,
+        le=1_000_000,
+        description="Stream length threshold for backpressure (80% of maxlen by default)",
+    )
+    backpressure_response_code: int = Field(
+        default=503, ge=400, le=599, description="HTTP status code when backpressure active"
+    )
 
     # Rate limiting (prevent abuse and protect against webhook floods)
     rate_limit_enabled: bool = True
-    rate_limit_requests_per_minute: int = Field(default=1000, ge=1, le=100_000, description="Max requests per minute per IP")
+    rate_limit_requests_per_minute: int = Field(
+        default=1000, ge=1, le=100_000, description="Max requests per minute per IP"
+    )
     rate_limit_burst_size: int = Field(default=100, ge=1, le=10_000, description="Burst size for token bucket")
 
     # Alert routing
@@ -189,23 +201,23 @@ class Settings(BaseSettings):
     # --- Deterministic Event-Time Windowing (Feature 3) ---
     # Geometric Idempotency and Stator's Latch for out-of-order telemetry
     event_time_determinism_enabled: bool = True
-    
+
     # Geometric hashing configuration
     geometric_hash_provider: str = "h3"  # h3, s2, or none
     geometric_hash_resolution: int = 9  # H3: 0-15, S2: 0-30, Geohash: 1-12
-    
+
     # Stator's Latch configuration
     stator_latch_enabled: bool = True
     stator_latch_ttl_seconds: int = 14 * 86_400  # 14 days
     stator_latch_tolerance_seconds: int = 1  # Duplicate detection tolerance
-    
+
     # Re-ordering Buffer configuration
     reorder_buffer_enabled: bool = True
     reorder_buffer_max_events_per_entity: int = 100
     reorder_buffer_max_wait_seconds: int = 300  # 5 minutes
     reorder_buffer_expire_seconds: int = 3600  # 1 hour
     reorder_buffer_check_interval_seconds: float = 5.0
-    
+
     # Spatial coherence checks
     spatial_coherence_enabled: bool = True
     max_velocity_mps: float = 150.0  # ~335 mph, generous for trucks

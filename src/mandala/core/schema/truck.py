@@ -3,6 +3,7 @@
 Source data normalized from Samsara (and future telematics connectors:
 Geotab, Motive, Verizon Connect, etc.). Shape is vendor-agnostic.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -20,14 +21,14 @@ class EquipmentType(StrEnum):
     Connectors are responsible for translating to the vendor-specific code.
     """
 
-    VAN = "van"                       # 53' dry van
-    REEFER = "reefer"                 # refrigerated
+    VAN = "van"  # 53' dry van
+    REEFER = "reefer"  # refrigerated
     FLATBED = "flatbed"
     STEPDECK = "stepdeck"
     DOUBLE_DROP = "double_drop"
     LOWBOY = "lowboy"
     POWER_ONLY = "power_only"
-    CONTAINER = "container"           # intermodal
+    CONTAINER = "container"  # intermodal
     HOTSHOT = "hotshot"
     AUTO_CARRIER = "auto_carrier"
     TANKER = "tanker"

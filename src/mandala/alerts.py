@@ -10,6 +10,7 @@ returns a list of new events to publish. No classes, no DI framework.
 
 Add detectors here; they're cheap.
 """
+
 from __future__ import annotations
 
 import structlog
@@ -29,9 +30,7 @@ _DEBOUNCE_TTL = 1800  # 30 min per truck per fence
 
 
 async def _debounce(redis: object, key: str, ttl: int = _DEBOUNCE_TTL) -> bool:
-    return bool(
-        await redis.set(f"mandala:alert:dedup:{key}", "1", nx=True, ex=ttl)  # type: ignore[attr-defined]
-    )
+    return bool(await redis.set(f"mandala:alert:dedup:{key}", "1", nx=True, ex=ttl))  # type: ignore[attr-defined]
 
 
 def _is_border_poe(data: dict) -> bool:
@@ -40,9 +39,7 @@ def _is_border_poe(data: dict) -> bool:
     return any(t in name or t in gid for t in _BORDER_TAGS)
 
 
-async def cross_border(
-    event: MandalaEvent, state: StateStore, redis: object
-) -> list[MandalaEvent]:
+async def cross_border(event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
     if event.type != EventType.TRUCK_GEOFENCE_ENTERED.value:
         return []
     data = event.data if isinstance(event.data, dict) else {}
@@ -96,9 +93,7 @@ async def cross_border(
     ]
 
 
-async def cold_chain(
-    event: MandalaEvent, state: StateStore, redis: object
-) -> list[MandalaEvent]:
+async def cold_chain(event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
     if event.type != EventType.COLD_CHAIN_BREACH.value:
         return []
     data = event.data if isinstance(event.data, dict) else {}
@@ -108,9 +103,9 @@ async def cold_chain(
     declared_min = (shipment or {}).get("cold_chain_min_c")
     declared_max = (shipment or {}).get("cold_chain_max_c")
     temp = data.get("temperature_c")
-    out_of_spec = (
-        declared_max is not None and temp is not None and temp > float(declared_max)
-    ) or (declared_min is not None and temp is not None and temp < float(declared_min))
+    out_of_spec = (declared_max is not None and temp is not None and temp > float(declared_max)) or (
+        declared_min is not None and temp is not None and temp < float(declared_min)
+    )
     if not (declared_min is None and declared_max is None) and not out_of_spec:
         return []
     if not await _debounce(redis, f"coldchain:{truck_urn}", ttl=600):

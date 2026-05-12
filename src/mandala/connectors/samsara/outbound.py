@@ -10,6 +10,7 @@ a separate Mandala dashboard.
 
 Reference: https://developers.samsara.com/reference
 """
+
 from __future__ import annotations
 
 import httpx

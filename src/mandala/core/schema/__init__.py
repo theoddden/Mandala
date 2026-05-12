@@ -5,6 +5,7 @@ incoming data into these objects, and every outbound playbook action
 operates on these objects. They are independent of any single vendor's
 data model.
 """
+
 from mandala.core.schema.geo import BorderCrossing, Geofence, GeoPoint
 from mandala.core.schema.identifiers import URN, parse_urn
 from mandala.core.schema.party import Address, Party

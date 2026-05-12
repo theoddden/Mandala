@@ -5,6 +5,7 @@ the shared secret configured in the carrier integration UI. The
 signature is delivered in the ``X-MacroPoint-Signature`` header,
 hex-encoded, optionally with a ``sha256=`` prefix.
 """
+
 from __future__ import annotations
 
 import json
@@ -43,9 +44,7 @@ async def ingest_macropoint_webhook(
 
     if settings.webhook_timestamp_tolerance_sec > 0:
         ts = x_macropoint_timestamp or date_header
-        if not is_timestamp_fresh(
-            ts, tolerance_sec=settings.webhook_timestamp_tolerance_sec
-        ):
+        if not is_timestamp_fresh(ts, tolerance_sec=settings.webhook_timestamp_tolerance_sec):
             log.warning("macropoint.webhook.stale_timestamp", timestamp=ts)
             raise HTTPException(status_code=401, detail="stale or missing timestamp")
 
@@ -69,9 +68,7 @@ async def ingest_macropoint_webhook(
     body_fingerprint = hash_payload(body)
 
     for event in events:
-        key = event.mandalaingestid or hash_payload(
-            event.type, event.subject or "", body_fingerprint
-        )
+        key = event.mandalaingestid or hash_payload(event.type, event.subject or "", body_fingerprint)
         if not await idempotency.claim(key, ttl_seconds=86_400):
             log.info("macropoint.webhook.duplicate", key=key, type=event.type)
             continue

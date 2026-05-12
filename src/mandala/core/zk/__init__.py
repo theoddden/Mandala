@@ -3,6 +3,7 @@
 Provides privacy-preserving verification of logistics events without revealing
 sensitive operational data.
 """
+
 from __future__ import annotations
 
 from mandala.core.zk.circuits import ColdChainBreachProof, ZKCircuit

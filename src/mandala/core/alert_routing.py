@@ -3,6 +3,7 @@
 Routes Mandala alerts to Slack, Email, PagerDuty, and other notification
 channels based on alert type, severity, and routing rules.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -72,9 +73,7 @@ class AlertRouter:
         if routing_tasks:
             await asyncio.gather(*routing_tasks, return_exceptions=True)
 
-    async def _route_to_slack(
-        self, event: MandalaEvent, data: dict[str, Any], severity: str
-    ) -> None:
+    async def _route_to_slack(self, event: MandalaEvent, data: dict[str, Any], severity: str) -> None:
         """Route alert to Slack webhook.
 
         Args:
@@ -158,9 +157,7 @@ class AlertRouter:
         except Exception as exc:  # noqa: BLE001
             log.exception("alert.routing.slack_failed", error=str(exc))
 
-    async def _route_to_email(
-        self, event: MandalaEvent, data: dict[str, Any], severity: str
-    ) -> None:
+    async def _route_to_email(self, event: MandalaEvent, data: dict[str, Any], severity: str) -> None:
         """Route alert to Email via SMTP.
 
         Args:
@@ -218,9 +215,7 @@ class AlertRouter:
         except Exception as exc:  # noqa: BLE001
             log.exception("alert.routing.email_failed", error=str(exc))
 
-    async def _route_to_pagerduty(
-        self, event: MandalaEvent, data: dict[str, Any], severity: str
-    ) -> None:
+    async def _route_to_pagerduty(self, event: MandalaEvent, data: dict[str, Any], severity: str) -> None:
         """Route alert to PagerDuty via Events API v2.
 
         Args:

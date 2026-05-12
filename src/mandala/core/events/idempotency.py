@@ -4,6 +4,7 @@ Each inbound webhook carries (or is hashed into) an ``ingest_id``. We
 record the id in Redis with a TTL; if a duplicate arrives within the TTL
 window we drop it instead of re-emitting the normalized event.
 """
+
 from __future__ import annotations
 
 import hashlib

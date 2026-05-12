@@ -5,6 +5,7 @@ answer — **"which trucks are at a border POE right now, and which of those
 don't yet have a released customs filing?"** — in O(bitmap-size / 8) via
 boolean set algebra instead of O(trucks × POEs) scans.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -157,9 +158,7 @@ class BitmapView(MaterializedView):
         not_filed_key = f"mandala:view:bm:tmp:{_poe_key(poe)}:not_filed:{suffix}"
         try:
             await self._r.bitop("NOT", not_filed_key, _filed_key(poe))  # type: ignore[attr-defined]
-            await self._r.bitop(  # type: ignore[attr-defined]
-                "AND", tmp_key, _present_key(poe), not_filed_key
-            )
+            await self._r.bitop("AND", tmp_key, _present_key(poe), not_filed_key)  # type: ignore[attr-defined]
             return await self._bitmap_urns(tmp_key)
         finally:
             await self._r.delete(tmp_key, not_filed_key)  # type: ignore[attr-defined]

@@ -10,6 +10,7 @@ Run with::
 
     mandala views
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -51,9 +52,7 @@ async def _probe_redis_version(redis: object) -> str:
         return "unknown"
 
 
-async def _publish_consumer_group_lag(
-    redis: object, stream: str, group: str, interval_sec: float = 10.0
-) -> None:
+async def _publish_consumer_group_lag(redis: object, stream: str, group: str, interval_sec: float = 10.0) -> None:
     """Background task to publish consumer group lag metrics."""
     while True:
         try:
@@ -131,9 +130,7 @@ async def run(rebuild: bool = False) -> None:
         start_metrics_server(s.metrics_port)
 
     # Start background task to publish consumer group lag metrics
-    lag_task = asyncio.create_task(
-        _publish_consumer_group_lag(r, s.stream_inbound, s.views_consumer_group)
-    )
+    lag_task = asyncio.create_task(_publish_consumer_group_lag(r, s.stream_inbound, s.views_consumer_group))
 
     log.info(
         "mandala.views.start",

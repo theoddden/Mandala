@@ -2,6 +2,7 @@
 
 Tests circuit breaker, rate limiter, and adaptive backpressure.
 """
+
 from __future__ import annotations
 
 import pytest

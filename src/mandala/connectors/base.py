@@ -13,6 +13,7 @@ Connectors must not depend on each other. Each must run usefully with only
 its own credentials configured. See ``RISKS.md`` #1 (Descartes API
 fragmentation) for the rationale.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

@@ -16,6 +16,7 @@ Design goals:
   10_000) we drop oldest spans and log once per flush — observability must
   never back-pressure the bus.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -112,9 +113,7 @@ class OTLPExporter:
     async def _run(self) -> None:
         while not self._stopped.is_set():
             try:
-                await asyncio.wait_for(
-                    self._stopped.wait(), timeout=self.flush_interval_sec
-                )
+                await asyncio.wait_for(self._stopped.wait(), timeout=self.flush_interval_sec)
             except TimeoutError:
                 pass
             await self._flush()
@@ -163,9 +162,7 @@ class OTLPExporter:
             log.warning("mandala.otlp.export.exception %s", e)
 
         if self._dropped_since_last_flush:
-            log.warning(
-                "mandala.otlp.queue.dropped count=%s", self._dropped_since_last_flush
-            )
+            log.warning("mandala.otlp.queue.dropped count=%s", self._dropped_since_last_flush)
             self._dropped_since_last_flush = 0
 
 

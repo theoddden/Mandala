@@ -3,6 +3,7 @@
 Coast provides a REST API for querying fuel transactions.
 Reference: Coast API documentation (available via Samsara Marketplace)
 """
+
 from __future__ import annotations
 
 from datetime import datetime

@@ -4,6 +4,7 @@ Every type is a dot-separated string in the ``mandala.<entity>.<verb>`` form.
 Adding a new type is a one-line addition here plus the matching ``data``
 schema in :mod:`mandala.core.schema`.
 """
+
 from __future__ import annotations
 
 from enum import StrEnum

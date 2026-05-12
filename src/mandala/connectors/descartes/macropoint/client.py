@@ -5,6 +5,7 @@ endpoint authenticated with an API key. This client is the bridge from
 Mandala's normalized truck-position events back to MacroPoint's expected
 ``LocationUpdate`` schema.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -62,9 +63,7 @@ class MacroPointClient:
             with attempt:
                 resp = await self._client.request(method, path, **kwargs)
                 if resp.status_code in (408, 429) or 500 <= resp.status_code < 600:
-                    raise httpx.HTTPStatusError(
-                        f"transient {resp.status_code}", request=resp.request, response=resp
-                    )
+                    raise httpx.HTTPStatusError(f"transient {resp.status_code}", request=resp.request, response=resp)
                 resp.raise_for_status()
                 return resp
         raise RuntimeError("unreachable")

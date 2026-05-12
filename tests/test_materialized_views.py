@@ -4,6 +4,7 @@ These tests use a minimal in-memory fake Redis that implements exactly the
 commands the views use — no external Redis required. Real integration tests
 against a live Redis / FalkorDB belong in a separate suite.
 """
+
 from __future__ import annotations
 
 import asyncio

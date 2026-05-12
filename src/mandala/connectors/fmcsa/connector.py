@@ -3,6 +3,7 @@
 FMCSA SAFER API is a free, public API with no authentication required.
 This connector is always "configured" since no credentials are needed.
 """
+
 from __future__ import annotations
 
 from mandala.connectors.base import BaseConnector

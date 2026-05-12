@@ -8,6 +8,7 @@ Set MANDALA_VIZION_API_KEY in your .env to enable this connector.
 Mandala degrades gracefully if the key is absent — rail events simply
 won't be emitted.
 """
+
 from __future__ import annotations
 
 import logging

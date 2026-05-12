@@ -8,6 +8,7 @@ To support clearing fields (e.g., resetting ``customs_status`` from
 ``hold`` to ``None``), pass the sentinel value ``STATE_DELETE`` as the
 value in the patch — the key will be removed from the stored object.
 """
+
 from __future__ import annotations
 
 import json

@@ -4,6 +4,7 @@ Trimmed for one-person ops: a single process, single Redis stream, optional
 connectors. Heavy work (alerts, projection, MCP) runs in the ``mandala worker``
 process which reads the same stream.
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -31,14 +32,14 @@ async def _lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
     app.state.redis = redis.from_url(s.redis_url, decode_responses=False)
     app.state.bus = RedisStreamsBus(app.state.redis)
     app.state.idempotency = RedisIdempotencyStore(app.state.redis)
-    
+
     # Initialize adaptive backpressure if enabled
     if s.adaptive_backpressure_enabled:
         app.state.adaptive_backpressure = AdaptiveBackpressure(app.state.redis)
         log.info("mandala.adaptive_backpressure_enabled")
     else:
         app.state.adaptive_backpressure = None
-    
+
     log.info("mandala.startup", redis=s.redis_url)
     try:
         yield
@@ -61,25 +62,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Use a custom middleware that will use the AdaptiveBackpressure instance
         # The middleware is added after lifespan so it can access app.state.adaptive_backpressure
         from starlette.middleware.base import BaseHTTPMiddleware
-        
+
         class AdaptiveBackpressureMiddleware(BaseHTTPMiddleware):
             async def dispatch(self, request, call_next):
                 # Only check backpressure for webhook endpoints
-                if request.url.path.startswith("/webhooks/") and hasattr(request.app.state, 'adaptive_backpressure') and request.app.state.adaptive_backpressure:
+                if (
+                    request.url.path.startswith("/webhooks/")
+                    and hasattr(request.app.state, "adaptive_backpressure")
+                    and request.app.state.adaptive_backpressure
+                ):
                     should_accept, reason = await request.app.state.adaptive_backpressure.should_accept_new_event()
                     if not should_accept:
                         from fastapi import Response, status
+
                         return Response(
                             content=f"System degraded: {reason}",
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                         )
                 return await call_next(request)
-        
+
         app.add_middleware(AdaptiveBackpressureMiddleware)
     else:
         # Fall back to simple stream-length based backpressure
         app.add_middleware(SimpleBackpressureMiddleware)
-    
+
     # Add rate limiting middleware to prevent abuse
     app.add_middleware(RateLimitMiddleware)
 
@@ -92,7 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def readyz() -> dict[str, Any]:
         """Readiness check - verifies Redis connectivity and stream health."""
         health_status: dict[str, Any] = {"status": "ready", "checks": {}}
-        
+
         # Check Redis connectivity
         try:
             await app.state.redis.ping()
@@ -101,7 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             health_status["status"] = "not_ready"
             health_status["checks"]["redis"] = f"failed: {str(exc)}"
             return health_status
-        
+
         # Check stream exists and is writable
         try:
             s = app.state.settings
@@ -114,7 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             health_status["status"] = "not_ready"
             health_status["checks"]["stream"] = f"failed: {str(exc)}"
             return health_status
-        
+
         return health_status
 
     @app.get("/version", tags=["meta"])
@@ -143,9 +149,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     try:
         from mandala.connectors.cargowise.webhook import router as cargowise_router
 
-        app.include_router(
-            cargowise_router, prefix="/webhooks/cargowise", tags=["cargowise"]
-        )
+        app.include_router(cargowise_router, prefix="/webhooks/cargowise", tags=["cargowise"])
     except ImportError:
         log.info("mandala.connector.cargowise.disabled")
 

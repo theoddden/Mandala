@@ -7,6 +7,7 @@ and publishes any resulting events back to the stream.
 This is the single Mandala worker process. Scale horizontally by running
 multiple instances — they'll share the consumer group.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -80,11 +81,11 @@ async def _probe_redis_version(redis: object) -> str:
 async def run() -> None:
     global _shutdown_requested
     s = get_settings()
-    
+
     # Register signal handlers for graceful shutdown
     signal.signal(signal.SIGTERM, _request_shutdown)
     signal.signal(signal.SIGINT, _request_shutdown)
-    
+
     # Use connection pool for better performance under high throughput
     pool = redis.ConnectionPool.from_url(s.redis_url, decode_responses=False)
     r = redis.Redis(connection_pool=pool)
@@ -98,18 +99,18 @@ async def run() -> None:
     alert_router = AlertRouter()
     alert_aggregator = AlertAggregator(r)
     consumer = f"{socket.gethostname()}-{os.getpid()}"
-    
+
     # Deterministic Event-Time Windowing components
     stator_latch: StatorLatch | None = None
     reorder_buffer_manager: ReorderBufferManager | None = None
     geo_hash_service: GeometricHashService | None = None
-    
+
     if s.event_time_determinism_enabled:
         # Initialize Stator's Latch for event-time determinism
         if s.stator_latch_enabled:
             stator_latch = StatorLatch(r, ttl_seconds=s.stator_latch_ttl_seconds)
             log.info("stator_latch.enabled", ttl_seconds=s.stator_latch_ttl_seconds)
-        
+
         # Initialize Re-ordering Buffer for out-of-order events
         if s.reorder_buffer_enabled:
             reorder_buffer_manager = ReorderBufferManager(
@@ -124,7 +125,7 @@ async def run() -> None:
                 max_events=s.reorder_buffer_max_events_per_entity,
                 max_wait_seconds=s.reorder_buffer_max_wait_seconds,
             )
-        
+
         # Initialize Geometric Hash Service
         geo_hash_service = GeometricHashService(
             provider=GeometricHashProvider(s.geometric_hash_provider),
@@ -135,13 +136,13 @@ async def run() -> None:
             provider=s.geometric_hash_provider,
             resolution=s.geometric_hash_resolution,
         )
-    
+
     # Detector sandbox for timeout and circuit breaker protection
     detector_sandbox = DetectorSandboxPool(DETECTORS)
-    
+
     # Adaptive backpressure for resource-aware processing
     adaptive_backpressure = AdaptiveBackpressure(r)
-    
+
     # Samsara outbound client (optional)
     samsara_outbound: SamsaraOutboundClient | None = None
     if s.samsara_outbound_enabled and s.samsara_api_token:
@@ -226,7 +227,7 @@ async def run() -> None:
 
                         # Set processed_at timestamp for three-timestamp accounting
                         event.processed_at = datetime.now(UTC)
-                        
+
                         # --- Deterministic Event-Time Windowing ---
                         # Extract coordinates and compute geometric hash if available
                         latitude = None
@@ -240,12 +241,10 @@ async def run() -> None:
                                 if isinstance(location, dict):
                                     latitude = location.get("latitude")
                                     longitude = location.get("longitude")
-                        
+
                         # Compute geometric hash if coordinates available and service enabled
                         if geo_hash_service and latitude is not None and longitude is not None:
-                            event.geometric_hash = geo_hash_service.compute_hash(
-                                latitude, longitude, event.time
-                            )
+                            event.geometric_hash = geo_hash_service.compute_hash(latitude, longitude, event.time)
                             log.debug(
                                 "geometric_hash.computed",
                                 event_id=event.id,
@@ -253,7 +252,7 @@ async def run() -> None:
                                 lat=latitude,
                                 lon=longitude,
                             )
-                        
+
                         # Check Stator's Latch for event-time determinism
                         latch_decision = LatchDecision.PROCEED
                         if stator_latch and event.time:
@@ -264,7 +263,7 @@ async def run() -> None:
                                 tolerance_seconds=s.stator_latch_tolerance_seconds,
                             )
                             latch_decision = latch_result.decision
-                            
+
                             if latch_decision == LatchDecision.BACKFILL:
                                 # Time-travel data: backfill historical graph, bypass real-time Turbine
                                 log.info(
@@ -286,7 +285,7 @@ async def run() -> None:
                                 )
                                 await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
                                 continue
-                        
+
                         # Check re-ordering buffer for out-of-order events
                         if reorder_buffer_manager and event.time:
                             should_release, buffered_event = await reorder_buffer_manager.add_event(
@@ -337,7 +336,7 @@ async def run() -> None:
                             new_events = await detector_sandbox.execute_all(event, state, r)
                             detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
                             detector_execution_duration_seconds.labels(detector_name="all").observe(detector_duration)
-                            
+
                             for ne in new_events:
                                 # Set processed_at timestamp for three-timestamp accounting
                                 ne.processed_at = datetime.now(UTC)
@@ -351,18 +350,16 @@ async def run() -> None:
                                 # invocation, so the bus-layer dedup key would never
                                 # match. Disable it here; webhook layer is the
                                 # authoritative dedup boundary for ingest.
-                                published_id = await bus.publish(
-                                    s.stream_inbound, ne, enable_deduplication=False
-                                )
+                                published_id = await bus.publish(s.stream_inbound, ne, enable_deduplication=False)
                                 if not published_id:
                                     # Dropped as duplicate — don't inflate metrics.
                                     continue
                                 events_processed_total.labels(event_type=ne.type, detector="sandbox").inc()
-                                
+
                                 # Push alerts back to Samsara if enabled
                                 if samsara_outbound and ne.type.startswith("mandala.alert"):
                                     await _push_to_samsara(samsara_outbound, ne)
-                                
+
                                 # Route alerts to external channels if enabled
                                 if s.alert_routing_enabled and ne.type.startswith("mandala.alert"):
                                     # Check aggregation before routing
@@ -370,14 +367,16 @@ async def run() -> None:
                                         route_start = datetime.now(UTC)
                                         await alert_router.route(ne)
                                         route_duration = (datetime.now(UTC) - route_start).total_seconds()
-                                        alert_routing_duration_seconds.labels(channel="external").observe(route_duration)
+                                        alert_routing_duration_seconds.labels(channel="external").observe(
+                                            route_duration
+                                        )
                                         alerts_routed_total.labels(channel="external", status="success").inc()
                                     else:
                                         log.debug(
                                             "alert.aggregated.skipped_routing",
                                             alert_type=ne.type,
                                         )
-                                
+
                                 # Enqueue ZK proof generation for cold-chain breaches (if enabled)
                                 if proving_service and ne.type == "mandala.alert.cold_chain.out_of_spec":
                                     data = ne.data if isinstance(ne.data, dict) else {}
@@ -392,7 +391,9 @@ async def run() -> None:
                                     log.info("zk.proof.auto_enqueued", event_id=ne.id)
                         except Exception as exc:  # noqa: BLE001
                             detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
-                            detector_execution_duration_seconds.labels(detector_name="sandbox").observe(detector_duration)
+                            detector_execution_duration_seconds.labels(detector_name="sandbox").observe(
+                                detector_duration
+                            )
                             log.exception(
                                 "mandala.worker.detector_sandbox_failed",
                                 event_id=event.id,
@@ -407,7 +408,9 @@ async def run() -> None:
                             dlq_events_total.labels(context="detector").inc()
 
                         event_duration = (datetime.now(UTC) - event_start).total_seconds()
-                        events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(event_duration)
+                        events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(
+                            event_duration
+                        )
 
                         # Acknowledge event after successful processing
                         await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
@@ -432,9 +435,7 @@ async def run() -> None:
         log.info("mandala.worker.shutdown_complete")
 
 
-async def _push_to_samsara(
-    client: SamsaraOutboundClient, alert_event: MandalaEvent
-) -> None:
+async def _push_to_samsara(client: SamsaraOutboundClient, alert_event: MandalaEvent) -> None:
     """Push Mandala alerts back to Samsara.
 
     Sends driver messages and updates vehicle tags for:

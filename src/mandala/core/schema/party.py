@@ -1,4 +1,5 @@
 """Trade parties: shippers, consignees, carriers, brokers."""
+
 from __future__ import annotations
 
 from enum import StrEnum

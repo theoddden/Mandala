@@ -1,4 +1,5 @@
 """Sink protocol and the canonical row shape consumed by ``dbt-mandala``."""
+
 from __future__ import annotations
 
 import json
@@ -18,10 +19,10 @@ class SinkRecord:
     event_type: str
     source: str
     subject: str | None
-    event_time: str            # RFC 3339
-    ingested_at: str           # RFC 3339, set by the sink
+    event_time: str  # RFC 3339
+    ingested_at: str  # RFC 3339, set by the sink
     schema_version: str
-    payload: str               # JSON string of the CloudEvents ``data``
+    payload: str  # JSON string of the CloudEvents ``data``
 
     @classmethod
     def from_event(cls, event: MandalaEvent) -> SinkRecord:

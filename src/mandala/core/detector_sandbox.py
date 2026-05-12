@@ -3,6 +3,7 @@
 Prevents buggy detectors (infinite loops, slow API calls) from blocking
 the entire worker process.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,9 +37,7 @@ class DetectorSandbox:
             recovery_timeout=circuit_breaker_timeout,
         )
 
-    async def execute(
-        self, event: MandalaEvent, state: StateStore, redis: object
-    ) -> list[MandalaEvent]:
+    async def execute(self, event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
         """Execute detector with timeout and circuit breaker protection."""
         # Check circuit breaker
         if self._circuit_breaker.is_open():
@@ -55,7 +54,7 @@ class DetectorSandbox:
                 self._detector_func(event, state, redis),
                 timeout=self._timeout,
             )
-            
+
             # Record success
             self._circuit_breaker.record_success()
             return result
@@ -91,14 +90,14 @@ class DetectorSandboxPool:
         # Create sandboxes for each detector
         for detector in detectors:
             detector_name = detector.__name__
-            
+
             # Configure timeouts based on detector type
             # ML inference and external API calls get longer timeouts
             if any(keyword in detector_name.lower() for keyword in ["ml", "model", "predict", "fmcsa", "vizion"]):
                 timeout = 60.0
             else:
                 timeout = 10.0
-            
+
             self._sandboxes[detector_name] = DetectorSandbox(
                 detector_func=detector,
                 detector_name=detector_name,
@@ -107,14 +106,9 @@ class DetectorSandboxPool:
                 circuit_breaker_timeout=60.0,
             )
 
-    async def execute_all(
-        self, event: MandalaEvent, state: StateStore, redis: object
-    ) -> list[MandalaEvent]:
+    async def execute_all(self, event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
         """Execute all detectors in parallel with sandbox protection."""
-        tasks = [
-            sandbox.execute(event, state, redis)
-            for sandbox in self._sandboxes.values()
-        ]
+        tasks = [sandbox.execute(event, state, redis) for sandbox in self._sandboxes.values()]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

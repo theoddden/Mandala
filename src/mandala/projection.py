@@ -7,6 +7,7 @@ To prevent vendor payload bugs from corrupting state, each projection uses
 an explicit field allowlist. Only fields known to be safe are merged into
 the stored object.
 """
+
 from __future__ import annotations
 
 from mandala.core.events.envelope import MandalaEvent

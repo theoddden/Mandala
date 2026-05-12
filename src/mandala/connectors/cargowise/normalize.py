@@ -31,6 +31,7 @@ arrives via a separate subscription and gets normalized in a sibling
 module if/when needed. v0.1 covers status milestones, customs events,
 and BOL receipt, which is the high-frequency stream.
 """
+
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
@@ -51,23 +52,21 @@ NS = {"u": "http://www.cargowise.com/Schemas/Universal/2011/11"}
 _STATUS_MAP: dict[str, EventType] = {
     # Shipment lifecycle
     "BKD": EventType.SHIPMENT_BOOKED,
-    "DIM": EventType.SHIPMENT_DISPATCHED,         # Departed import gateway / movement
-    "PUF": EventType.SHIPMENT_PICKED_UP,           # Pick-up from origin
+    "DIM": EventType.SHIPMENT_DISPATCHED,  # Departed import gateway / movement
+    "PUF": EventType.SHIPMENT_PICKED_UP,  # Pick-up from origin
     "ITR": EventType.SHIPMENT_IN_TRANSIT,
-    "ARR": EventType.SHIPMENT_AT_BORDER,           # Arrival at gateway
-    "POD": EventType.SHIPMENT_DELIVERED,           # Proof of Delivery
+    "ARR": EventType.SHIPMENT_AT_BORDER,  # Arrival at gateway
+    "POD": EventType.SHIPMENT_DELIVERED,  # Proof of Delivery
     "DLV": EventType.SHIPMENT_DELIVERED,
     "CXL": EventType.SHIPMENT_CANCELLED,
     "ETA": EventType.SHIPMENT_ETA_UPDATED,
-    "HND": EventType.SHIPMENT_HANDOFF,             # Handoff confirmed
-
+    "HND": EventType.SHIPMENT_HANDOFF,  # Handoff confirmed
     # Customs
-    "CDF": EventType.CUSTOMS_FILED,                # Customs declaration filed
-    "CDH": EventType.CUSTOMS_HOLD,                 # Customs hold
-    "CDE": EventType.CUSTOMS_EXAM,                 # Customs exam
-    "CDR": EventType.CUSTOMS_RELEASED,             # Customs released
-    "CDX": EventType.CUSTOMS_REJECTED,             # Customs rejected
-
+    "CDF": EventType.CUSTOMS_FILED,  # Customs declaration filed
+    "CDH": EventType.CUSTOMS_HOLD,  # Customs hold
+    "CDE": EventType.CUSTOMS_EXAM,  # Customs exam
+    "CDR": EventType.CUSTOMS_RELEASED,  # Customs released
+    "CDX": EventType.CUSTOMS_REJECTED,  # Customs rejected
     # BOL / paperwork
     "BLR": EventType.BOL_RECEIVED,
     "BLA": EventType.BOL_AMENDED,
@@ -96,9 +95,7 @@ def _shipment_urn(scope: str, key: str) -> str:
 
 def _ingest_id(elem: ET.Element) -> str | None:
     # Universal Event documents may carry a TrackingID GUID in DataContext.
-    return _txt(elem, "u:Event/u:DataContext/u:EventTrackingID") or _txt(
-        elem, "u:Event/u:EventTrackingID"
-    )
+    return _txt(elem, "u:Event/u:DataContext/u:EventTrackingID") or _txt(elem, "u:Event/u:EventTrackingID")
 
 
 def normalize(body: bytes | str) -> list[MandalaEvent]:
@@ -150,11 +147,15 @@ def normalize(body: bytes | str) -> list[MandalaEvent]:
         payload["occurred_at"] = occurred_at.isoformat()
 
     # Customs hold / exam events typically carry a reason in EventReference.
-    if mandala_type in {
-        EventType.CUSTOMS_HOLD,
-        EventType.CUSTOMS_EXAM,
-        EventType.CUSTOMS_REJECTED,
-    } and reference:
+    if (
+        mandala_type
+        in {
+            EventType.CUSTOMS_HOLD,
+            EventType.CUSTOMS_EXAM,
+            EventType.CUSTOMS_REJECTED,
+        }
+        and reference
+    ):
         payload["hold_reason"] = reference
 
     return [

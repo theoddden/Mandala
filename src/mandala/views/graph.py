@@ -16,6 +16,7 @@ on as `FalkorDB <https://www.falkordb.com/>`_. On startup we probe
 single warning and becomes a no-op. This is by design — graph is
 high-value but low-footprint and shouldn't block the other views.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -101,9 +102,7 @@ class GraphView(MaterializedView):
             shipment_urn = data.get("shipment_urn") or event.subject
             if truck_urn and shipment_urn:
                 await self._query(
-                    "MERGE (t:Truck {urn: $t}) "
-                    "MERGE (s:Shipment {urn: $s}) "
-                    "MERGE (t)-[:HAULS]->(s)",
+                    "MERGE (t:Truck {urn: $t}) " "MERGE (s:Shipment {urn: $s}) " "MERGE (t)-[:HAULS]->(s)",
                     {"t": truck_urn, "s": shipment_urn},
                 )
             return
@@ -113,9 +112,7 @@ class GraphView(MaterializedView):
             authority = data.get("authority") or "unknown"
             if shipment_urn:
                 await self._query(
-                    "MERGE (s:Shipment {urn: $s}) "
-                    "MERGE (a:Authority {code: $a}) "
-                    "MERGE (s)-[:FILED_WITH]->(a)",
+                    "MERGE (s:Shipment {urn: $s}) " "MERGE (a:Authority {code: $a}) " "MERGE (s)-[:FILED_WITH]->(a)",
                     {"s": shipment_urn, "a": str(authority)},
                 )
             return
@@ -125,9 +122,7 @@ class GraphView(MaterializedView):
             poe = data.get("geofence_id") or data.get("geofence_name")
             if truck_urn and poe:
                 await self._query(
-                    "MERGE (t:Truck {urn: $t}) "
-                    "MERGE (p:POE {id: $p}) "
-                    "MERGE (t)-[:CROSSED]->(p)",
+                    "MERGE (t:Truck {urn: $t}) " "MERGE (p:POE {id: $p}) " "MERGE (t)-[:CROSSED]->(p)",
                     {"t": truck_urn, "p": str(poe)},
                 )
             return

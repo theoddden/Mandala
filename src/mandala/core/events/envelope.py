@@ -38,6 +38,7 @@ for one shipment auto-correlate without coordination.
 * ``end_time`` — for spans with duration (vessel transit, customs hold).
 * ``attributes`` — OTel-style attributes (semantic conventions: ``logistics.*``).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -101,7 +102,9 @@ class MandalaEvent(BaseModel):
     # --- Mandala extensions -----------------------------------------------
     mandalaschemaversion: str = SCHEMA_VERSION
     mandalaingestid: str | None = None
-    mandalaidempotencykey: str | None = Field(default=None, description="SHA256-derived idempotency key for exactly-once delivery")
+    mandalaidempotencykey: str | None = Field(
+        default=None, description="SHA256-derived idempotency key for exactly-once delivery"
+    )
     traceparent: str | None = None
     tracestate: str | None = None
     # --- Three-timestamp accounting ----------------------------------------
@@ -111,11 +114,20 @@ class MandalaEvent(BaseModel):
     trace_id: str | None = Field(default=None, description="16-byte hex trace id; derived from subject if unset")
     span_id: str | None = Field(default=None, description="8-byte hex span id; derived from event id if unset")
     parent_span_id: str | None = Field(default=None, description="Causal parent span (e.g. detector → emitted event)")
-    end_time: datetime | None = Field(default=None, description="Span end time for events with duration (vessel transit, customs hold)")
-    attributes: dict[str, Any] = Field(default_factory=dict, description="OTel span attributes (logistics.* semantic conventions)")
+    end_time: datetime | None = Field(
+        default=None, description="Span end time for events with duration (vessel transit, customs hold)"
+    )
+    attributes: dict[str, Any] = Field(
+        default_factory=dict, description="OTel span attributes (logistics.* semantic conventions)"
+    )
     # --- Deterministic Event-Time Windowing (Feature 3) --------------------
-    geometric_hash: str | None = Field(default=None, description="Geometric hash (H3/S2) for spatial idempotency and event-time determinism")
-    delta_t_vector: dict[str, Any] | None = Field(default=None, description="Vector of Delta-T for trajectory analysis (delta_t_seconds, hash_changed, velocity_mps)")
+    geometric_hash: str | None = Field(
+        default=None, description="Geometric hash (H3/S2) for spatial idempotency and event-time determinism"
+    )
+    delta_t_vector: dict[str, Any] | None = Field(
+        default=None,
+        description="Vector of Delta-T for trajectory analysis (delta_t_seconds, hash_changed, velocity_mps)",
+    )
     # --- Payload ----------------------------------------------------------
     data: Any = None
 
@@ -178,28 +190,26 @@ class MandalaEvent(BaseModel):
             "kind": 1,  # SPAN_KIND_INTERNAL (1); ingest spans could override to PRODUCER (3)
             "startTimeUnixNano": str(start_ns),
             "endTimeUnixNano": str(end_ns),
-            "attributes": [
-                {"key": k, "value": _otlp_value(v)} for k, v in attrs.items()
-            ],
+            "attributes": [{"key": k, "value": _otlp_value(v)} for k, v in attrs.items()],
             "status": {"code": 1},  # STATUS_CODE_OK; detectors can set ERROR (2)
         }
 
     def compute_idempotency_key(self) -> str:
         """Compute deterministic idempotency key from source payload.
-        
+
         Key is SHA256(vendor + event_type + occurred_at + entity_id).
         This ensures exactly-once delivery by detecting duplicate events
         from webhook retries or network hiccups.
         """
         # Extract vendor from source (e.g., "mandala/connector/samsara" -> "samsara")
         vendor = self.source.split("/")[-1] if "/" in self.source else self.source
-        
+
         # Extract entity_id from subject if available
         entity_id = self.subject if self.subject else ""
-        
+
         # Build key components
         key_components = f"{vendor}:{self.type}:{self.time.isoformat()}:{entity_id}"
-        
+
         # Compute SHA256 hash
         return hashlib.sha256(key_components.encode()).hexdigest()
 

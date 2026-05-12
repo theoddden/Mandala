@@ -8,6 +8,7 @@ the same shared secret in your CargoWise outbound subscription).
 
 The endpoint accepts ``Content-Type: application/xml`` or ``text/xml``.
 """
+
 from __future__ import annotations
 
 import structlog
@@ -44,9 +45,7 @@ async def ingest_cargowise_webhook(
 
     if settings.webhook_timestamp_tolerance_sec > 0:
         ts = x_cargowise_timestamp or date_header
-        if not is_timestamp_fresh(
-            ts, tolerance_sec=settings.webhook_timestamp_tolerance_sec
-        ):
+        if not is_timestamp_fresh(ts, tolerance_sec=settings.webhook_timestamp_tolerance_sec):
             log.warning("cargowise.webhook.stale_timestamp", timestamp=ts)
             raise HTTPException(status_code=401, detail="stale or missing timestamp")
 
@@ -65,9 +64,7 @@ async def ingest_cargowise_webhook(
     body_fingerprint = hash_payload(body)
 
     for event in events:
-        key = event.mandalaingestid or hash_payload(
-            event.type, event.subject or "", body_fingerprint
-        )
+        key = event.mandalaingestid or hash_payload(event.type, event.subject or "", body_fingerprint)
         if not await idempotency.claim(key, ttl_seconds=86_400):
             log.info("cargowise.webhook.duplicate", key=key, type=event.type)
             continue

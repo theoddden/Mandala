@@ -8,6 +8,7 @@ Samsara delivers each webhook as a JSON document with a top-level
 the type. This module is intentionally a pure function table — easy to
 unit-test, no I/O, no config.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -58,9 +59,11 @@ def _handle_vehicle_location(payload: dict[str, Any]) -> list[MandalaEvent]:
         lat=float(loc["latitude"]),
         lon=float(loc["longitude"]),
         heading_deg=loc.get("headingDegrees"),
-        speed_mps=(loc.get("speedMilesPerHour") or 0.0) * 0.44704
-        if "speedMilesPerHour" in loc
-        else loc.get("speedMetersPerSecond"),
+        speed_mps=(
+            (loc.get("speedMilesPerHour") or 0.0) * 0.44704
+            if "speedMilesPerHour" in loc
+            else loc.get("speedMetersPerSecond")
+        ),
         captured_at=_parse_ts(loc.get("time") or loc.get("happenedAtTime") or payload["happenedAtTime"]),
     )
     telemetry = TruckTelemetry(
@@ -85,21 +88,23 @@ def _handle_vehicle_location(payload: dict[str, Any]) -> list[MandalaEvent]:
     ]
 
 
-def _handle_geofence(payload: dict[str, Any], *, entered: bool, poe_geofences: dict[str, dict[str, float | int]] | None = None) -> list[MandalaEvent]:
+def _handle_geofence(
+    payload: dict[str, Any], *, entered: bool, poe_geofences: dict[str, dict[str, float | int]] | None = None
+) -> list[MandalaEvent]:
     data = payload.get("data", {})
     vehicle = data.get("vehicle", {})
     fence = data.get("address", {}) or data.get("geofence", {})
     vehicle_id = vehicle.get("id") or data.get("vehicleId")
     if vehicle_id is None:
         return []
-    
+
     geofence_name = fence.get("name", "")
-    
+
     # Check if this geofence matches a configured POE
     is_poe = False
     if poe_geofences and geofence_name:
         is_poe = geofence_name.lower() in [poe.lower() for poe in poe_geofences.keys()]
-    
+
     events = [
         new_event(
             type=EventType.TRUCK_GEOFENCE_ENTERED if entered else EventType.TRUCK_GEOFENCE_EXITED,
@@ -115,7 +120,7 @@ def _handle_geofence(payload: dict[str, Any], *, entered: bool, poe_geofences: d
             ingest_id=_ingest_id(payload),
         )
     ]
-    
+
     # If this is a POE geofence, emit a POE-specific event
     if is_poe:
         events.append(
@@ -132,7 +137,7 @@ def _handle_geofence(payload: dict[str, Any], *, entered: bool, poe_geofences: d
                 ingest_id=f"{_ingest_id(payload)}:poe" if _ingest_id(payload) else None,
             )
         )
-    
+
     return events
 
 
@@ -241,9 +246,11 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[MandalaEvent]]] = {
 }
 
 
-def normalize(payload: dict[str, Any], *, poe_geofences: dict[str, dict[str, float | int]] | None = None) -> list[MandalaEvent]:
+def normalize(
+    payload: dict[str, Any], *, poe_geofences: dict[str, dict[str, float | int]] | None = None
+) -> list[MandalaEvent]:
     """Convert a Samsara webhook payload into zero or more :class:`MandalaEvent` objects.
-    
+
     Args:
         payload: The Samsara webhook payload
         poe_geofences: Optional dict of configured POE geofences for POE-specific event emission

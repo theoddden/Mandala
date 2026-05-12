@@ -13,6 +13,7 @@ Iceberg provides:
 
 The event log is append-only. Events are never deleted or modified.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -165,11 +166,7 @@ class IcebergEventLog:
                 "span_id": [event.span_id],
                 "parent_span_id": [event.parent_span_id],
                 "end_time": [event.end_time],
-                "attributes": [
-                    event.model_dump_json(exclude_none=True, by_alias=True)
-                    if event.attributes
-                    else None
-                ],
+                "attributes": [event.model_dump_json(exclude_none=True, by_alias=True) if event.attributes else None],
             }
 
             arrow_table = pa.table(data)
@@ -210,6 +207,7 @@ class IcebergEventLog:
             row_filter = filters[0] if filters else None
             if len(filters) > 1:
                 from pyarrow.compute import and_
+
                 for f in filters[1:]:
                     row_filter = and_(row_filter, f) if row_filter else f
 
@@ -223,9 +221,7 @@ class IcebergEventLog:
                         target_snapshot = snap.snapshot_id
                         break
                 if target_snapshot:
-                    arrow_table = table.scan(
-                        row_filter=row_filter, snapshot_id=target_snapshot
-                    ).to_arrow()
+                    arrow_table = table.scan(row_filter=row_filter, snapshot_id=target_snapshot).to_arrow()
                 else:
                     arrow_table = table.scan(row_filter=row_filter).to_arrow()
             else:

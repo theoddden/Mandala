@@ -25,6 +25,7 @@ References:
   revision is current at time of writing; newer revisions are
   backwards-compatible at the field level).
 """
+
 from mandala.connectors.cargowise.client import CargoWiseClient
 from mandala.connectors.cargowise.connector import CargoWiseConnector
 

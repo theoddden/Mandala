@@ -12,6 +12,7 @@ Retention is bounded by ``settings.views_timeseries_ttl_seconds``: a
 ``now - ttl``. This keeps memory bounded without needing Redis key TTLs
 (which don't apply to individual sorted-set members).
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

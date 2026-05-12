@@ -6,6 +6,7 @@ Three commands; that's all you need:
     mandala worker    # event loop: project + alert
     mandala mcp       # MCP stdio server for LLMs
 """
+
 from __future__ import annotations
 
 import click
@@ -82,7 +83,9 @@ def schema() -> None:
 @click.option("--dry-run", is_flag=True, help="Don't write to state, just show what would happen")
 @click.option("--stream", is_flag=True, help="Replay from Redis Stream instead of Iceberg (for recent events)")
 @click.option("--count", default=1000, help="Number of events to replay from stream (only with --stream)")
-def replay(from_dt: str, to_dt: str, entity: str | None, detector: str | None, dry_run: bool, stream: bool, count: int) -> None:
+def replay(
+    from_dt: str, to_dt: str, entity: str | None, detector: str | None, dry_run: bool, stream: bool, count: int
+) -> None:
     """Replay historical events to fix state after bugs."""
     import asyncio
     from datetime import datetime

@@ -6,6 +6,7 @@ Layout:
 This is exactly the layout Snowflake / BigQuery / Redshift / Athena
 expect for date-partitioned external tables.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable

@@ -10,6 +10,7 @@ load-board poster gracefully skips it.
 Reference: DAT Developer portal — OAuth2 client-credentials flow,
 ``POST {postings_base_url}/postings/v3/truck-postings``.
 """
+
 from mandala.connectors.dat.client import DATClient
 from mandala.connectors.dat.connector import DATConnector
 

@@ -8,6 +8,7 @@ The DAT API expects equipment codes from its own taxonomy (e.g. ``V`` for
 van, ``R`` for reefer); :data:`EQUIPMENT_TO_DAT_CODE` translates from the
 canonical Mandala :class:`EquipmentType`.
 """
+
 from __future__ import annotations
 
 import time
@@ -121,9 +122,7 @@ class DATClient:
                 if resp.status_code == 401:
                     # token expired between cache check and request — force refresh.
                     self._token = None
-                    raise httpx.HTTPStatusError(
-                        "DAT 401 — re-authing", request=resp.request, response=resp
-                    )
+                    raise httpx.HTTPStatusError("DAT 401 — re-authing", request=resp.request, response=resp)
                 if resp.status_code in (408, 429) or 500 <= resp.status_code < 600:
                     raise httpx.HTTPStatusError(
                         f"DAT transient {resp.status_code}", request=resp.request, response=resp

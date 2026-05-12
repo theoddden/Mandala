@@ -1,4 +1,5 @@
 """Abstract rail provider protocol — implement this for any rail carrier."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

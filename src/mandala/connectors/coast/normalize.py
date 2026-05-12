@@ -1,4 +1,5 @@
 """Normalize Coast API payloads into MandalaEvent objects."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -77,8 +78,7 @@ def normalize_transaction(transaction: dict[str, Any]) -> MandalaEvent:
         metadata={
             k: str(v)
             for k, v in transaction.items()
-            if k not in {"truckId", "vehicle_id", "id", "transactionId", "transactionDate", "date"}
-            and v is not None
+            if k not in {"truckId", "vehicle_id", "id", "transactionId", "transactionDate", "date"} and v is not None
         },
     )
 

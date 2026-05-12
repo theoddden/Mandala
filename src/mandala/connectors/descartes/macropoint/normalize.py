@@ -10,6 +10,7 @@ MacroPoint's public carrier integration uses a JSON envelope with a
 
 We translate both into events on the canonical Mandala bus.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -70,12 +71,7 @@ def normalize(payload: dict[str, Any]) -> list[MandalaEvent]:
     msg_type = payload.get("MessageType") or payload.get("messageType") or ""
     body = payload.get("Body") or payload.get("body") or payload
 
-    shipment_id = (
-        body.get("ShipmentId")
-        or body.get("shipmentId")
-        or body.get("OrderNumber")
-        or body.get("orderNumber")
-    )
+    shipment_id = body.get("ShipmentId") or body.get("shipmentId") or body.get("OrderNumber") or body.get("orderNumber")
     if shipment_id is None:
         return []
 

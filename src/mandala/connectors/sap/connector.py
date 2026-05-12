@@ -8,6 +8,7 @@ Telemetry out: SAP TM shipment changes, SAP EWM inventory changes → Mandala ev
 
 See docs/integrations/sap.md for integration pattern.
 """
+
 from __future__ import annotations
 
 from typing import Any

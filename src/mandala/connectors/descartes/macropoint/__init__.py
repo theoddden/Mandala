@@ -13,6 +13,7 @@ Scope (v1, public carrier docs only):
 This works without any commercial Descartes subscription — MacroPoint
 publishes the integration spec for carriers using the platform.
 """
+
 from mandala.connectors.descartes.macropoint.connector import MacroPointConnector
 
 __all__ = ["MacroPointConnector"]

@@ -10,6 +10,7 @@ Query entry points:
 * :meth:`GeospatialView.truck_position` — ``GEOPOS`` for a single URN.
 * :meth:`GeospatialView.last_seen` — hash lookup for staleness filtering.
 """
+
 from __future__ import annotations
 
 from typing import Any

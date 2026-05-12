@@ -5,6 +5,7 @@ events with safety profile data. This module provides pure functions to
 transform the raw SAFER API response into the canonical FMCSA enrichment
 shape that attaches to carrier events.
 """
+
 from __future__ import annotations
 
 from typing import Any

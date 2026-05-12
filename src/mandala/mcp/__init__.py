@@ -16,6 +16,7 @@ Tools (v0.1):
   authority, broker.
 * ``get_recent_alerts(limit=50, severity=None)`` — most recent alerts.
 """
+
 from mandala.mcp.server import build_server, main
 
 __all__ = ["build_server", "main"]

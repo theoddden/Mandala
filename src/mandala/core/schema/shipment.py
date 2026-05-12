@@ -3,6 +3,7 @@
 Normalized from Descartes (GLN, MacroPoint, Datamyne, Compliance) and any
 other trade platform connectors.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

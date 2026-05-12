@@ -3,6 +3,7 @@
 Uses the official ``mcp`` Python SDK (Anthropic). Run via ``mandala mcp``.
 The server is stateless across calls; all data comes from Redis state.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -108,9 +109,7 @@ async def tool_get_fleet_near_border(border_poe: str, radius_km: float = 50.0) -
         # --- Fast path: geospatial view --------------------------------
         if target is not None:
             view = GeospatialView(r)
-            near = await view.trucks_near(
-                lat=target[0], lon=target[1], radius_mi=radius_mi, limit=200
-            )
+            near = await view.trucks_near(lat=target[0], lon=target[1], radius_mi=radius_mi, limit=200)
             if near:
                 return {
                     "border_poe": border_poe,
@@ -173,9 +172,7 @@ async def tool_get_trucks_at_poe_without_filing(poe: str) -> dict[str, Any]:
         await r.aclose()
 
 
-async def tool_get_cold_chain_breaches(
-    since_hours: int = 24, limit: int = 100
-) -> dict[str, Any]:
+async def tool_get_cold_chain_breaches(since_hours: int = 24, limit: int = 100) -> dict[str, Any]:
     """Return cold-chain breach events across the fleet within the last
     ``since_hours`` hours. Backed by the timeseries materialized view."""
     from datetime import UTC, datetime, timedelta
@@ -240,9 +237,7 @@ def build_server():  # type: ignore[no-untyped-def]
         from mcp.server import Server
         from mcp.types import TextContent, Tool
     except ImportError as exc:  # pragma: no cover
-        raise SystemExit(
-            "mcp package not installed. Install with: pip install mandala-bridge[mcp]"
-        ) from exc
+        raise SystemExit("mcp package not installed. Install with: pip install mandala-bridge[mcp]") from exc
 
     server = Server("mandala")
 
@@ -385,9 +380,7 @@ def main() -> None:
     try:
         from mcp.server.stdio import stdio_server
     except ImportError as exc:  # pragma: no cover
-        raise SystemExit(
-            "mcp package not installed. Install with: pip install mandala-bridge[mcp]"
-        ) from exc
+        raise SystemExit("mcp package not installed. Install with: pip install mandala-bridge[mcp]") from exc
 
     async def _run() -> None:
         server = build_server()

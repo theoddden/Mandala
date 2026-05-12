@@ -3,6 +3,7 @@
 FLEETCOR provides fuel card management with a REST API for transaction data.
 Supports multiple brands: Comdata, Fuelman, FleetONE, etc.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

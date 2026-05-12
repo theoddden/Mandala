@@ -15,6 +15,7 @@ Two sinks ship with v0.1:
 To add Snowflake / BigQuery / Postgres direct sinks: subclass
 :class:`Sink` and implement ``write_batch``.
 """
+
 from mandala.sinks.base import Sink, SinkRecord
 from mandala.sinks.jsonl import JsonlFileSink
 

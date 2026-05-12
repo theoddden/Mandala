@@ -7,6 +7,7 @@ out-of-service rate, and operating authority status.
 
 Reference: https://developer.fmcsa.dot.gov/api-reference
 """
+
 from __future__ import annotations
 
 from typing import Any

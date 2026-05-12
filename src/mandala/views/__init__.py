@@ -20,6 +20,7 @@ Views are:
 All views are **idempotent** (safe to re-apply the same event) and
 **rebuildable** (can be rehydrated by replaying the stream from ``0``).
 """
+
 from __future__ import annotations
 
 from mandala.views.base import MaterializedView

@@ -10,6 +10,7 @@ method exposes the full surface for advanced usage.
 
 Reference: https://developers.samsara.com/reference
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -72,9 +73,7 @@ class SamsaraClient:
             with attempt:
                 resp = await self._client.request(method, path, **kwargs)
                 if resp.status_code in (408, 429) or 500 <= resp.status_code < 600:
-                    raise httpx.HTTPStatusError(
-                        f"transient {resp.status_code}", request=resp.request, response=resp
-                    )
+                    raise httpx.HTTPStatusError(f"transient {resp.status_code}", request=resp.request, response=resp)
                 resp.raise_for_status()
                 return resp
         raise RuntimeError("unreachable")
@@ -99,9 +98,7 @@ class SamsaraClient:
             if not cursor:
                 break
 
-    async def get_vehicle_locations(
-        self, *, start_time: str, end_time: str
-    ) -> list[dict[str, Any]]:
+    async def get_vehicle_locations(self, *, start_time: str, end_time: str) -> list[dict[str, Any]]:
         resp = await self.request(
             "GET",
             "/v1/fleet/vehicles/locations/history",

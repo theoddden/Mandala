@@ -6,6 +6,7 @@ live FMCSA record and emits a CARRIER_FMCSA_ENRICHED event.
 
 Debounced to avoid repeated API calls for the same DOT number within a 24h window.
 """
+
 from __future__ import annotations
 
 import structlog
@@ -22,9 +23,7 @@ _ENRICHMENT_TTL = 86_400  # 24 hours: FMCSA scores update monthly, so cache aggr
 
 
 async def _debounce(redis: object, key: str, ttl: int = _ENRICHMENT_TTL) -> bool:
-    return bool(
-        await redis.set(f"mandala:fmcsa:enrich:{key}", "1", nx=True, ex=ttl)  # type: ignore[attr-defined]
-    )
+    return bool(await redis.set(f"mandala:fmcsa:enrich:{key}", "1", nx=True, ex=ttl))  # type: ignore[attr-defined]
 
 
 async def _fetch_fmcsa_data(dot_number: str) -> tuple[dict | None, Exception | None]:
@@ -55,9 +54,7 @@ def _failure_event(event: MandalaEvent, dot_number: str, exc: Exception) -> Mand
     )
 
 
-async def enrich_carrier_via_fmcsa(
-    event: MandalaEvent, state: object, redis: object
-) -> list[MandalaEvent]:
+async def enrich_carrier_via_fmcsa(event: MandalaEvent, state: object, redis: object) -> list[MandalaEvent]:
     """Detector: enrich carrier events with FMCSA SAFER data.
 
     Returns the enriched event on success, or a
@@ -71,11 +68,7 @@ async def enrich_carrier_via_fmcsa(
     """
     data = event.data if isinstance(event.data, dict) else {}
 
-    dot_number = (
-        data.get("dot_number")
-        or data.get("carrier_dot")
-        or data.get("fmcsa_dot")
-    )
+    dot_number = data.get("dot_number") or data.get("carrier_dot") or data.get("fmcsa_dot")
     if not dot_number:
         return []
 

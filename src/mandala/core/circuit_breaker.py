@@ -18,6 +18,7 @@ Usage:
     async with breaker:
         result = await samsara_client.get_truck(truck_id)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +34,7 @@ log = structlog.get_logger(__name__)
 
 class CircuitState(Enum):
     """Circuit breaker states."""
+
     CLOSED = auto()  # Normal operation, requests allowed
     OPEN = auto()  # Circuit is open, requests rejected
     HALF_OPEN = auto()  # Testing if service has recovered
@@ -41,6 +43,7 @@ class CircuitState(Enum):
 @dataclass
 class CircuitBreakerConfig:
     """Configuration for circuit breaker."""
+
     name: str
     failure_threshold: int = 5  # Number of failures before opening
     recovery_timeout: float = 60.0  # Seconds to wait before half-open
@@ -77,10 +80,7 @@ class CircuitBreaker:
         async with self._lock:
             if self._state == CircuitState.OPEN:
                 # Check if recovery timeout has elapsed
-                if (
-                    self._last_failure_time
-                    and time.time() - self._last_failure_time > self._config.recovery_timeout
-                ):
+                if self._last_failure_time and time.time() - self._last_failure_time > self._config.recovery_timeout:
                     self._state = CircuitState.HALF_OPEN
                     self._success_count = 0
                     log.info(

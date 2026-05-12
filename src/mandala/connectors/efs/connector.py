@@ -1,4 +1,5 @@
 """Top-level EFS connector glue."""
+
 from __future__ import annotations
 
 from mandala.connectors.base import BaseConnector

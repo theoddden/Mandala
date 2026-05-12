@@ -3,6 +3,7 @@
 Aggregates similar alerts within a time window to prevent alert fatigue.
 Groups alerts by type, entity, and severity before routing.
 """
+
 from __future__ import annotations
 
 import json
@@ -152,9 +153,7 @@ class AlertAggregator:
             cursor = 0
 
             while True:
-                cursor, batch = await self._redis.scan(  # type: ignore[attr-defined]
-                    cursor, match=pattern, count=100
-                )
+                cursor, batch = await self._redis.scan(cursor, match=pattern, count=100)  # type: ignore[attr-defined]
                 keys.extend(batch)
                 if cursor == 0:
                     break

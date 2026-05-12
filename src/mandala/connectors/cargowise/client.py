@@ -9,6 +9,7 @@ auth. The XML body is wrapped in a Universal* document. We construct the
 minimum-viable Universal Event document for status pushes; for full
 shipment payloads, build the XML upstream and pass it via :meth:`post_xml`.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -81,11 +82,7 @@ def build_universal_event_xml(
 
 def _xml_escape(s: str) -> str:
     return (
-        s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&apos;")
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;")
     )
 
 

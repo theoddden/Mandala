@@ -3,6 +3,7 @@
 Allows replaying historical events from the Iceberg event log to correct
 state after fixing detector bugs or projection logic.
 """
+
 from __future__ import annotations
 
 import asyncio

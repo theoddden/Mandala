@@ -8,6 +8,7 @@ Examples:
     ``urn:mandala:bol:descartes:BOL-987654``
     ``urn:mandala:customs-entry:cbp:316-1234567-9``
 """
+
 from __future__ import annotations
 
 import re

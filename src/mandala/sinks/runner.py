@@ -3,6 +3,7 @@
 Lives in its own consumer group so it doesn't compete with the alert
 worker. Run via ``mandala sink --root ./warehouse``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -45,9 +46,7 @@ async def run(root: str) -> None:
         last_flush = asyncio.get_running_loop().time()
 
     try:
-        async for msg_id, event in bus.subscribe(
-            s.stream_inbound, group=SINK_GROUP, consumer=consumer, block_ms=1000
-        ):
+        async for msg_id, event in bus.subscribe(s.stream_inbound, group=SINK_GROUP, consumer=consumer, block_ms=1000):
             buffer.append((msg_id, SinkRecord.from_event(event)))
             now = asyncio.get_running_loop().time()
             if len(buffer) >= BATCH_SIZE or (now - last_flush) >= FLUSH_INTERVAL_SECONDS:

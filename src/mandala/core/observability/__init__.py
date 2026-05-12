@@ -8,6 +8,7 @@ Activation is **opt-in** via the ``MANDALA_OTLP_ENDPOINT`` environment
 variable (or :class:`mandala.settings.Settings.otlp_endpoint`). When unset
 the exporter is a no-op and adds zero overhead.
 """
+
 from mandala.core.observability.otlp_exporter import (
     OTLPExporter,
     get_exporter,

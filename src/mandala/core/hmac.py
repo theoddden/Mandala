@@ -10,6 +10,7 @@ receiver to reject replayed payloads outside a configurable window
 "signed-and-fresh" semantics matching Stripe, GitHub, and Samsara
 recommendations.
 """
+
 from __future__ import annotations
 
 import base64
@@ -46,7 +47,7 @@ def verify_hmac_sha256(
         return False
     sig = received_signature.strip()
     if prefix and sig.startswith(prefix):
-        sig = sig[len(prefix):]
+        sig = sig[len(prefix) :]
 
     digest = hmac.new(secret.encode("utf-8"), body, sha256).digest()
     expected = digest.hex() if encoding == "hex" else base64.b64encode(digest).decode("ascii")

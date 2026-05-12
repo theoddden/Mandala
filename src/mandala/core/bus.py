@@ -10,6 +10,7 @@ to the stream, the key is checked against a Redis SET with 14-day TTL.
 If the key exists, the event is dropped (duplicate). This atomic check-and-publish
 is performed via a Lua script to prevent race conditions.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,7 +42,7 @@ class EventBus(Protocol):
 
     async def publish(self, stream: str, event: MandalaEvent, *, enable_deduplication: bool = True) -> str:
         """Append ``event`` to ``stream`` and return the assigned message id.
-        
+
         Args:
             stream: Redis stream name
             event: MandalaEvent to publish
@@ -73,13 +74,12 @@ class EventBus(Protocol):
         """One-shot batched read; returns at most ``count`` events."""
         ...
 
-    async def ack(self, stream: str, group: str, message_id: str) -> None:
-        ...
+    async def ack(self, stream: str, group: str, message_id: str) -> None: ...
 
 
 class RedisStreamsBus:
     """Production :class:`EventBus` backed by Redis Streams + consumer groups.
-    
+
     Supports dual-write to Iceberg for permanent event log storage.
     """
 
@@ -105,14 +105,14 @@ class RedisStreamsBus:
 
     async def publish(self, stream: str, event: MandalaEvent, *, enable_deduplication: bool = True) -> str:
         """Append ``event`` to ``stream`` and return the assigned message id.
-        
+
         If enable_deduplication is True, checks idempotency key before publishing
         to prevent duplicate events from webhook retries or network hiccups.
         """
         # Compute idempotency key if not already set
         if not event.mandalaidempotencykey:
             event.mandalaidempotencykey = event.compute_idempotency_key()
-        
+
         # Check deduplication if enabled
         if enable_deduplication:
             await self._ensure_dedupe_script()
@@ -149,13 +149,13 @@ class RedisStreamsBus:
                 )
                 # Return empty string to indicate event was dropped
                 return ""
-        
+
         # Publish to stream
         s = get_settings()
         msg_id: str = await self._redis.xadd(  # type: ignore[attr-defined]
             stream, {"e": event.to_json()}, maxlen=s.stream_maxlen, approximate=True
         )
-        
+
         log.debug(
             "event published to stream",
             stream=stream,
@@ -163,13 +163,13 @@ class RedisStreamsBus:
             event_type=event.type,
             idempotency_key=event.mandalaidempotencykey,
         )
-        
+
         # Dual-write to Iceberg if configured (fire-and-forget, non-blocking)
         if self._event_log:
             asyncio.create_task(self._append_to_event_log(event))
-        
+
         return msg_id
-    
+
     async def _append_to_event_log(self, event: MandalaEvent) -> None:
         """Append event to Iceberg event log (background task)."""
         try:

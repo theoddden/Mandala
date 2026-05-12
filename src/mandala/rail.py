@@ -6,6 +6,7 @@ detector fetches the current intermodal status and emits rail events.
 
 Debounced to avoid repeated API calls for the same container within a 1h window.
 """
+
 from __future__ import annotations
 
 import structlog
@@ -20,14 +21,10 @@ _ENRICHMENT_TTL = 3_600  # 1 hour: rail status changes infrequently
 
 
 async def _debounce(redis: object, key: str, ttl: int = _ENRICHMENT_TTL) -> bool:
-    return bool(
-        await redis.set(f"mandala:rail:enrich:{key}", "1", nx=True, ex=ttl)  # type: ignore[attr-defined]
-    )
+    return bool(await redis.set(f"mandala:rail:enrich:{key}", "1", nx=True, ex=ttl))  # type: ignore[attr-defined]
 
 
-async def enrich_container_with_rail(
-    event: MandalaEvent, state: object, redis: object
-) -> list[MandalaEvent]:
+async def enrich_container_with_rail(event: MandalaEvent, state: object, redis: object) -> list[MandalaEvent]:
     """Enrich container events with rail status from Vizion API when container ID is present.
 
     This detector checks for container IDs in the event data and fetches the

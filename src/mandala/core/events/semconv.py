@@ -27,6 +27,7 @@ Honeycomb, Datadog, Grafana Cloud) as first-class facets — meaning every
 shipment is filterable / groupable / aggregable using the observability
 tooling your platform team already runs.
 """
+
 from __future__ import annotations
 
 from typing import Final
