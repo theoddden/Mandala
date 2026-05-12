@@ -77,6 +77,10 @@ target-version = "py311"
 select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "S", "C4", "RET", "SIM"]
 ignore = ["S101", "S104", "S110", "S112", "S603", "S607", "S314", "SIM108", "SIM102", "SIM103", "SIM105", "SIM118", "RET504", "RET505", "RET507", "UP006", "UP017", "UP035", "UP037", "UP042", "E501", "B905", "S108", "S311", "F401", "F841", "N806", "ASYNC240"]
 
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
