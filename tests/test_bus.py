@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from mandala.core.events.envelope import MandalaEvent, new_event
 
@@ -122,7 +123,7 @@ async def test_redis_streams_bus_consume():
     mock_redis = AsyncMock()
     mock_redis.xgroup_create = AsyncMock()
     mock_redis.xreadgroup = AsyncMock(return_value=[
-        (b"test-stream", [(b"12345-0", {b"e": b'{"type":"test.event","data":{"test":"value"}}'})])
+        (b"test-stream", [(b"12345-0", {b"e": b'{"type":"test.event","source":"test","data":{"test":"value"}}'})])
     ])
     mock_settings = Mock()
     mock_settings.stream_maxlen = 10000

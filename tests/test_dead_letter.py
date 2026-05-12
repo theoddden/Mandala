@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from mandala.core.events.envelope import MandalaEvent, new_event
 
@@ -70,9 +71,9 @@ async def test_dead_letter_queue_publish_retryable():
 @pytest.mark.asyncio
 async def test_dead_letter_queue_read():
     """Test DeadLetterQueue read method."""
-    from mandala.core.dead_letter import DeadLetterQueue
-
     import json
+
+    from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
     mock_redis.xrevrange = AsyncMock(return_value=[
@@ -104,9 +105,9 @@ async def test_dead_letter_queue_read_empty():
 @pytest.mark.asyncio
 async def test_dead_letter_queue_replay():
     """Test DeadLetterQueue replay method."""
-    from mandala.core.dead_letter import DeadLetterQueue
-
     import json
+
+    from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
     mock_redis.xrange = AsyncMock(return_value=[
@@ -117,18 +118,19 @@ async def test_dead_letter_queue_replay():
     mock_settings.stream_inbound = "mandala:inbound"
     mock_settings.stream_maxlen = 10000
 
-    with patch("mandala.core.dead_letter.get_settings", return_value=mock_settings):
-        with patch("mandala.core.bus.RedisStreamsBus") as MockBus:
-            mock_bus = AsyncMock()
-            mock_bus.publish = AsyncMock(return_value="msg-id")
-            MockBus.return_value = mock_bus
+    with patch("mandala.core.dead_letter.get_settings", return_value=mock_settings), patch(
+        "mandala.core.bus.RedisStreamsBus"
+    ) as MockBus:
+        mock_bus = AsyncMock()
+        mock_bus.publish = AsyncMock(return_value="msg-id")
+        MockBus.return_value = mock_bus
 
-            dlq = DeadLetterQueue(mock_redis)
-            result = await dlq.replay("12345-0")
+        dlq = DeadLetterQueue(mock_redis)
+        result = await dlq.replay("12345-0")
 
-            assert result is True
-            mock_bus.publish.assert_called_once()
-            mock_redis.xdel.assert_called_once()
+        assert result is True
+        mock_bus.publish.assert_called_once()
+        mock_redis.xdel.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -163,9 +165,9 @@ async def test_dead_letter_queue_delete():
 @pytest.mark.asyncio
 async def test_dead_letter_queue_stats():
     """Test DeadLetterQueue stats method."""
-    from mandala.core.dead_letter import DeadLetterQueue
-
     import json
+
+    from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
     mock_redis.xlen = AsyncMock(return_value=5)
@@ -217,9 +219,9 @@ def test_calculate_backoff():
 @pytest.mark.asyncio
 async def test_schedule_retry():
     """Test schedule_retry method."""
-    from mandala.core.dead_letter import DeadLetterQueue
-
     import json
+
+    from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
     mock_redis.xrange = AsyncMock(return_value=[
@@ -240,9 +242,9 @@ async def test_schedule_retry():
 @pytest.mark.asyncio
 async def test_schedule_retry_not_retryable():
     """Test schedule_retry with non-retryable event."""
-    from mandala.core.dead_letter import DeadLetterQueue
-
     import json
+
+    from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
     mock_redis.xrange = AsyncMock(return_value=[
@@ -272,9 +274,9 @@ async def test_schedule_retry_not_found():
 @pytest.mark.asyncio
 async def test_process_retries():
     """Test process_retries method."""
-    from mandala.core.dead_letter import DeadLetterQueue
-
     import json
+
+    from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
     mock_redis.zrangebyscore = AsyncMock(return_value=[b"12345-0"])
@@ -287,17 +289,18 @@ async def test_process_retries():
     mock_settings.stream_inbound = "mandala:inbound"
     mock_settings.stream_maxlen = 10000
 
-    with patch("mandala.core.dead_letter.get_settings", return_value=mock_settings):
-        with patch("mandala.core.bus.RedisStreamsBus") as MockBus:
-            mock_bus = AsyncMock()
-            mock_bus.publish = AsyncMock(return_value="msg-id")
-            MockBus.return_value = mock_bus
+    with patch("mandala.core.dead_letter.get_settings", return_value=mock_settings), patch(
+        "mandala.core.bus.RedisStreamsBus"
+    ) as MockBus:
+        mock_bus = AsyncMock()
+        mock_bus.publish = AsyncMock(return_value="msg-id")
+        MockBus.return_value = mock_bus
 
-            dlq = DeadLetterQueue(mock_redis)
-            count = await dlq.process_retries()
+        dlq = DeadLetterQueue(mock_redis)
+        count = await dlq.process_retries()
 
-            assert count == 1
-            mock_redis.zrem.assert_called_once()
+        assert count == 1
+        mock_redis.zrem.assert_called_once()
 
 
 @pytest.mark.asyncio
