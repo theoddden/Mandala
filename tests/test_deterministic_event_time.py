@@ -295,34 +295,31 @@ class TestReorderBuffer:
 
     @pytest.mark.asyncio
     async def test_release_ready_events(self, redis_mock):
-        """Test that in-order events are released immediately."""
+        """Test that release_ready returns buffered events that are ready."""
         buffer = ReorderBuffer(redis=redis_mock)
         source_id = "truck-123"
 
+        # Add an out-of-order event that will be buffered
+        event2 = MandalaEvent(
+            id="event-2",
+            source="test",
+            type="test.event",
+            time=datetime(2026, 5, 11, 12, 0, 30, tzinfo=UTC),
+        )
+
+        # Add event2 first (out of order, will be buffered since it's not the first event)
+        await buffer.add(event2, source_id, event2.time)
+
+        # Now add event1 (in order, will be released immediately and set next_expected)
         event1 = MandalaEvent(
             id="event-1",
             source="test",
             type="test.event",
             time=datetime(2026, 5, 11, 12, 0, 0, tzinfo=UTC),
         )
-        event2 = MandalaEvent(
-            id="event-2",
-            source="test",
-            type="test.event",
-            time=datetime(2026, 5, 11, 12, 0, 30, tzinfo=UTC),  # 30 seconds later (less than 60s gap threshold)
-        )
-
-        # Add first event (will be released immediately)
         await buffer.add(event1, source_id, event1.time)
 
-        # Release ready events (should return empty since event1 was already released)
-        released = await buffer.release_ready(source_id)
-        assert len(released) == 0
-
-        # Add second event (will be released immediately since it's in-order)
-        await buffer.add(event2, source_id, event2.time)
-
-        # Release ready events (should return event2)
+        # Release ready events (event2 should now be released since event1 filled the gap)
         released = await buffer.release_ready(source_id)
         assert len(released) == 1
         assert released[0].id == "event-2"
