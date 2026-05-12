@@ -313,7 +313,7 @@ class TestReorderBuffer:
             id="event-3",
             source="test",
             type="test.event",
-            time=datetime(2026, 5, 11, 12, 1, 0, tzinfo=UTC),  # 1 minute later (triggers gap detection)
+            time=datetime(2026, 5, 11, 12, 1, 1, tzinfo=UTC),  # 61 seconds later (triggers gap detection)
         )
         await buffer.add(event3, source_id, event3.time)
 

@@ -151,7 +151,7 @@ class ReorderBuffer:
             if event_time >= next_expected:
                 # Check if there's a gap (event is significantly newer)
                 time_gap = (event_time - next_expected).total_seconds()
-                if time_gap >= 60:  # 1 minute or more gap
+                if time_gap > 60:  # More than 1 minute gap
                     log.info(
                         "reorder_buffer.gap_detected",
                         source_id=source_id,
