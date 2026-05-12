@@ -312,16 +312,17 @@ class TestReorderBuffer:
             time=datetime(2026, 5, 11, 12, 0, 30, tzinfo=UTC),  # 30 seconds later (less than 60s gap threshold)
         )
 
-        # Add events in order
+        # Add first event (will be released immediately)
         await buffer.add(event1, source_id, event1.time)
+
+        # Release ready events (should return empty since event1 was already released)
+        released = await buffer.release_ready(source_id)
+        assert len(released) == 0
+
+        # Add second event (will be released immediately since it's in-order)
         await buffer.add(event2, source_id, event2.time)
 
-        # Release ready events (event1 should be released immediately)
-        released = await buffer.release_ready(source_id)
-        assert len(released) == 1
-        assert released[0].id == "event-1"
-
-        # Release again to get event2
+        # Release ready events (should return event2)
         released = await buffer.release_ready(source_id)
         assert len(released) == 1
         assert released[0].id == "event-2"

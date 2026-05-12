@@ -18,6 +18,7 @@ log = structlog.get_logger(__name__)
 # Optional: psutil is only needed if adaptive_backpressure_enabled is set
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False

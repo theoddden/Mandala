@@ -16,6 +16,7 @@ Benefits:
 
 The event log is append-only. Events are never deleted or modified.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +34,7 @@ log = structlog.get_logger(__name__)
 try:
     from pyiceberg.catalog import Catalog
     from pyiceberg.table import Table
+
     PYICEBERG_AVAILABLE = True
 except ImportError:
     PYICEBERG_AVAILABLE = False

@@ -58,8 +58,11 @@ async def test_adaptive_backpressure_high_memory():
 
 @pytest.mark.asyncio
 async def test_adaptive_backpressure_high_redis_latency():
-    """Test that high Redis latency reduces batch size but accepts events."""
-    from mandala.core.adaptive_backpressure import AdaptiveBackpressure
+    """Test that high Redis latency triggers batch size reduction."""
+    from mandala.core.adaptive_backpressure import AdaptiveBackpressure, PSUTIL_AVAILABLE
+
+    if not PSUTIL_AVAILABLE:
+        pytest.skip("psutil not available")
 
     mock_redis = MockRedis()
     mock_redis._latency_ms = 500.0  # Above default threshold of 100
@@ -88,6 +91,32 @@ async def test_adaptive_backpressure_health_history():
     history = backpressure.get_health_history()
 
     assert len(history) == 3
+
+
+@pytest.mark.asyncio
+async def test_adaptive_backpressure_high_memory():
+    """Test that high memory usage triggers backpressure."""
+    from mandala.core.adaptive_backpressure import AdaptiveBackpressure, PSUTIL_AVAILABLE
+
+    if not PSUTIL_AVAILABLE:
+        pytest.skip("psutil not available")
+
+    mock_redis = MockRedis()
+    backpressure = AdaptiveBackpressure(mock_redis)
+
+    # Simulate high memory usage
+    health = {
+        "is_healthy": False,
+        "recommendation": "reject_new",
+        "redis_latency_ms": 1.0,
+        "memory_percent": 95.0,
+        "cpu_percent": 30.0,
+        "stream_length": 1000,
+    }
+
+    should_accept, reason = await backpressure.should_accept_new_event()
+    assert should_accept is False
+    assert "degraded" in reason.lower()
 
 
 @pytest.mark.asyncio
