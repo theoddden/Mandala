@@ -66,10 +66,6 @@ stream_lag_seconds = Gauge(
     "mandala_stream_lag_seconds", "Lag between event time and processing time in seconds", ["stream"]
 )
 
-consumer_group_lag = Gauge(
-    "mandala_consumer_group_lag", "Number of pending messages in consumer group", ["stream", "group"]
-)
-
 # Samsara outbound metrics
 samsara_outbound_requests_total = Counter(
     "mandala_samsara_outbound_requests_total", "Total number of Samsara outbound API requests", ["endpoint", "status"]
