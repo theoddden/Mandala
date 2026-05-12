@@ -27,7 +27,7 @@ class Alert:
         type: str,
         severity: str,
         message: str,
-        entity_id: str | None = None,
+        source: str | None = None,
         timestamp: datetime | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
@@ -35,7 +35,7 @@ class Alert:
         self.type = type
         self.severity = severity
         self.message = message
-        self.entity_id = entity_id
+        self.source = source
         self.timestamp = timestamp or datetime.now(UTC)
         self.metadata = metadata or {}
 
@@ -45,10 +45,23 @@ class Alert:
             "type": self.type,
             "severity": self.severity,
             "message": self.message,
-            "entity_id": self.entity_id,
+            "source": self.source,
             "timestamp": self.timestamp.isoformat(),
             "metadata": self.metadata,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Create Alert from dictionary."""
+        return cls(
+            id=data["id"],
+            type=data["type"],
+            severity=data["severity"],
+            message=data["message"],
+            source=data.get("source"),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else None,
+            metadata=data.get("metadata"),
+        )
 
 
 class AlertGroup:
@@ -58,13 +71,13 @@ class AlertGroup:
         self,
         id: str,
         alert_type: str,
-        entity_id: str | None = None,
+        source: str | None = None,
         severity: str = "unknown",
         alerts: list[Alert] | None = None,
     ) -> None:
         self.id = id
         self.alert_type = alert_type
-        self.entity_id = entity_id
+        self.source = source
         self.severity = severity
         self.alerts = alerts or []
         self.created_at = datetime.now(UTC)
@@ -81,20 +94,36 @@ class AlertGroup:
         return {
             "id": self.id,
             "alert_type": self.alert_type,
-            "entity_id": self.entity_id,
+            "source": self.source,
             "severity": self.severity,
             "count": self.get_count(),
             "created_at": self.created_at.isoformat(),
             "alerts": [alert.to_dict() for alert in self.alerts],
         }
 
+    def is_empty(self) -> bool:
+        """Check if the group is empty."""
+        return len(self.alerts) == 0
+
+    def clear(self) -> None:
+        """Clear all alerts from the group."""
+        self.alerts.clear()
+
+    def get_severity_distribution(self) -> dict[str, int]:
+        """Get distribution of alerts by severity."""
+        distribution: dict[str, int] = {}
+        for alert in self.alerts:
+            distribution[alert.severity] = distribution.get(alert.severity, 0) + 1
+        return distribution
+
 
 class AlertAggregator:
     """Aggregates similar alerts within a time window."""
 
-    def __init__(self, redis: object) -> None:
+    def __init__(self, redis: object, ttl: int = 3600) -> None:
         self._redis = redis
         self._aggregation_key_prefix = "mandala:alert:aggregation"
+        self._ttl = ttl
 
     def _aggregation_key(self, event: MandalaEvent) -> str:
         """Generate aggregation key for an alert event.

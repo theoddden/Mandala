@@ -35,13 +35,24 @@ class ReplayStatus(StrEnum):
 class ReplayConfig:
     """Configuration for event replay."""
 
-    from_dt: datetime
-    to_dt: datetime
+    from_dt: datetime | None = None
+    to_dt: datetime | None = None
+    from_timestamp: datetime | None = None  # Alias for from_dt for backward compatibility
+    to_timestamp: datetime | None = None  # Alias for to_dt for backward compatibility
     detector_filter: str | None = None
     dry_run: bool = False
     entity_urn: str | None = None
     stream_name: str = "mandala:events"
     count: int = 1000
+    max_failures: int = 10
+    speed_multiplier: float = 1.0
+
+    def __post_init__(self) -> None:
+        """Handle backward compatibility for parameter names."""
+        if self.from_timestamp is not None:
+            self.from_dt = self.from_timestamp
+        if self.to_timestamp is not None:
+            self.to_dt = self.to_timestamp
 
 
 class EventReplay:

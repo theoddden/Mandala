@@ -260,4 +260,48 @@ def new_event(
 
 
 # Alias for backward compatibility with tests
-MandalaEnvelope = MandalaEvent
+# MandalaEnvelope is a wrapper class that holds a MandalaEvent
+class MandalaEnvelope:
+    """Wrapper class for MandalaEvent for backward compatibility."""
+
+    def __init__(
+        self,
+        event: MandalaEvent | None = None,
+        received_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.event = event
+        self.received_at = received_at or datetime.now(UTC)
+        self.metadata = metadata or {}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert envelope to dictionary."""
+        return {
+            "event": self.event.model_dump() if self.event else None,
+            "received_at": self.received_at.isoformat(),
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Create envelope from dictionary."""
+        event_data = data.get("event")
+        event = MandalaEvent(**event_data) if event_data else None
+        received_at = datetime.fromisoformat(data.get("received_at")) if data.get("received_at") else None
+        metadata = data.get("metadata", {})
+        return cls(event=event, received_at=received_at, metadata=metadata)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MandalaEnvelope):
+            return False
+        return self.event == other.event and self.received_at == other.received_at
+
+    def __repr__(self) -> str:
+        return f"MandalaEnvelope(event={self.event}, received_at={self.received_at}, metadata={self.metadata})"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+
+# Keep the alias for cases where tests import directly
+MandalaEventAlias = MandalaEvent
