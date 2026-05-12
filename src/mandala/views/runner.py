@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis.asyncio as redis
 import structlog
@@ -38,7 +38,7 @@ from mandala.views.timeseries import TimeseriesView
 log = structlog.get_logger(__name__)
 
 
-async def _probe_redis_version(redis: "object") -> str:
+async def _probe_redis_version(redis: object) -> str:
     """Probe Redis server version at startup for feature detection."""
     try:
         info = await redis.info("server")  # type: ignore[attr-defined]
@@ -52,7 +52,7 @@ async def _probe_redis_version(redis: "object") -> str:
 
 
 async def _publish_consumer_group_lag(
-    redis: "object", stream: str, group: str, interval_sec: float = 10.0
+    redis: object, stream: str, group: str, interval_sec: float = 10.0
 ) -> None:
     """Background task to publish consumer group lag metrics."""
     while True:
@@ -72,7 +72,7 @@ async def _publish_consumer_group_lag(
         await asyncio.sleep(interval_sec)
 
 
-def _build_views(r: "object") -> list[MaterializedView]:
+def _build_views(r: object) -> list[MaterializedView]:
     s = get_settings()
     views: list[MaterializedView] = []
     if s.views_geospatial_enabled:
@@ -86,7 +86,7 @@ def _build_views(r: "object") -> list[MaterializedView]:
     return views
 
 
-async def _rebuild_views(r: "object", views: list[MaterializedView]) -> None:
+async def _rebuild_views(r: object, views: list[MaterializedView]) -> None:
     """Delete all view keys from Redis to trigger a full rebuild."""
     log.info("mandala.views.rebuild_start", views=[v.name for v in views])
     # Pattern for all view keys
@@ -158,12 +158,12 @@ async def run(rebuild: bool = False) -> None:
             for msg_id, event in messages:
                 # Fan out to all views in parallel; a single view crashing
                 # must never block or drop the event for other views.
-                start = datetime.now(timezone.utc)
+                start = datetime.now(UTC)
                 results = await asyncio.gather(
                     *(v.apply(event) for v in views),
                     return_exceptions=True,
                 )
-                duration = (datetime.now(timezone.utc) - start).total_seconds()
+                duration = (datetime.now(UTC) - start).total_seconds()
 
                 for view, result in zip(views, results, strict=True):
                     status = "success"

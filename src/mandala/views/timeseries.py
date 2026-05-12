@@ -47,7 +47,7 @@ class TimeseriesView(MaterializedView):
         EventType.COLD_CHAIN_RECOVERED.value,
     }
 
-    def __init__(self, redis: "object") -> None:
+    def __init__(self, redis: object) -> None:
         self._r = redis
 
     async def apply(self, event: MandalaEvent) -> None:

@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import logging
 import os
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
-from .base import IntermodalEvent, RailMilestone, RailProvider
+from .base import IntermodalEvent, RailMilestone
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +101,7 @@ class VizionRailProvider:
             eta=_parse_dt(eta_raw) if eta_raw else None,
             milestones=milestones,
             provider="vizion",
-            retrieved_at=datetime.now(tz=timezone.utc),
+            retrieved_at=datetime.now(tz=UTC),
         )
 
     def __del__(self) -> None:
@@ -114,8 +113,8 @@ class VizionRailProvider:
 
 def _parse_dt(value: str | None) -> datetime:
     if not value:
-        return datetime.now(tz=timezone.utc)
+        return datetime.now(tz=UTC)
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
-        return datetime.now(tz=timezone.utc)
+        return datetime.now(tz=UTC)

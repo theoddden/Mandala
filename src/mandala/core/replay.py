@@ -6,11 +6,12 @@ state after fixing detector bugs or projection logic.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
+from mandala.core.event_log import EventLog
 from mandala.core.events.envelope import MandalaEvent
 from mandala.core.state import StateStore
 
@@ -22,7 +23,7 @@ class EventReplay:
 
     def __init__(
         self,
-        event_log: "EventLog | None",
+        event_log: EventLog | None,
         state: StateStore,
     ) -> None:
         self._event_log = event_log
@@ -174,7 +175,7 @@ class EventReplay:
 
 
 async def replay_from_stream(
-    redis: "object",
+    redis: object,
     state: StateStore,
     stream_name: str = "mandala:events",
     count: int = 1000,

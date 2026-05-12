@@ -8,8 +8,9 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Type
+from typing import Any
 
 import structlog
 
@@ -22,7 +23,7 @@ def retry_with_backoff(
     max_delay: float = 10.0,
     exponential: bool = True,
     jitter: bool = True,
-    retryable_exceptions: tuple[Type[Exception], ...] = (Exception,),
+    retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
     on_retry: Callable[[int, Exception], None] | None = None,
 ) -> Callable:
     """Decorator for automatic retry with exponential backoff.
@@ -162,7 +163,7 @@ class HealthCheck:
                 await asyncio.wait_for(self._check_func(), timeout=self._timeout)
                 self._last_status = True
                 self._last_error = None
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._last_status = False
                 self._last_error = "Health check timed out"
                 log.warning("health_check.timeout")

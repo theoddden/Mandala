@@ -15,14 +15,13 @@ from mandala.connectors.fmcsa.normalize import (
     enrich_carrier_with_fmcsa as _build_enriched_event,
 )
 from mandala.core.events.envelope import MandalaEvent, new_event
-from mandala.core.events.types import EventType
 
 log = structlog.get_logger(__name__)
 
 _ENRICHMENT_TTL = 86_400  # 24 hours: FMCSA scores update monthly, so cache aggressively
 
 
-async def _debounce(redis: "object", key: str, ttl: int = _ENRICHMENT_TTL) -> bool:
+async def _debounce(redis: object, key: str, ttl: int = _ENRICHMENT_TTL) -> bool:
     return bool(
         await redis.set(f"mandala:fmcsa:enrich:{key}", "1", nx=True, ex=ttl)  # type: ignore[attr-defined]
     )
@@ -57,7 +56,7 @@ def _failure_event(event: MandalaEvent, dot_number: str, exc: Exception) -> Mand
 
 
 async def enrich_carrier_via_fmcsa(
-    event: MandalaEvent, state: "object", redis: "object"
+    event: MandalaEvent, state: object, redis: object
 ) -> list[MandalaEvent]:
     """Detector: enrich carrier events with FMCSA SAFER data.
 

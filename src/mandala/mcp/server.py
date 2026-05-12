@@ -15,7 +15,7 @@ from mandala.core.state import StateStore
 from mandala.settings import get_settings
 
 
-async def _state() -> tuple[StateStore, "object"]:
+async def _state() -> tuple[StateStore, object]:
     r = redis.from_url(get_settings().redis_url, decode_responses=False)
     return StateStore(r), r
 

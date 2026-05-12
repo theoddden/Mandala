@@ -29,7 +29,7 @@ SEEN_KEY = "mandala:view:geo:trucks:last_seen"
 class GeospatialView(MaterializedView):
     name = "geospatial"
 
-    def __init__(self, redis: "object") -> None:
+    def __init__(self, redis: object) -> None:
         self._r = redis
 
     async def apply(self, event: MandalaEvent) -> None:

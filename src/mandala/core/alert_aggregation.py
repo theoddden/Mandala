@@ -20,7 +20,7 @@ log = structlog.get_logger(__name__)
 class AlertAggregator:
     """Aggregates similar alerts within a time window."""
 
-    def __init__(self, redis: "object") -> None:
+    def __init__(self, redis: object) -> None:
         self._redis = redis
         self._aggregation_key_prefix = "mandala:alert:aggregation"
 
@@ -83,26 +83,25 @@ class AlertAggregator:
                 alert_type=event.type,
             )
             return False
-        else:
-            # Start new aggregation window
-            agg_data = {
-                "count": 1,
-                "first_alert_at": datetime.now(UTC).isoformat(),
-                "last_alert_at": datetime.now(UTC).isoformat(),
-                "alert_ids": [event.id],
-                "alert_type": event.type,
-                "subject": event.subject,
-            }
+        # Start new aggregation window
+        agg_data = {
+            "count": 1,
+            "first_alert_at": datetime.now(UTC).isoformat(),
+            "last_alert_at": datetime.now(UTC).isoformat(),
+            "alert_ids": [event.id],
+            "alert_type": event.type,
+            "subject": event.subject,
+        }
 
-            # redis-py SETEX signature: setex(name, time, value).
-            await self._redis.setex(  # type: ignore[attr-defined]
-                key,
-                s.alert_aggregation_window_seconds,
-                json.dumps(agg_data),
-            )
+        # redis-py SETEX signature: setex(name, time, value).
+        await self._redis.setex(  # type: ignore[attr-defined]
+            key,
+            s.alert_aggregation_window_seconds,
+            json.dumps(agg_data),
+        )
 
-            # Route first alert immediately
-            return True
+        # Route first alert immediately
+        return True
 
     async def _is_suppressed(self, event: MandalaEvent) -> bool:
         """Check if alert is within a suppression window.

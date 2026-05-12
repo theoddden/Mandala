@@ -18,6 +18,7 @@ have a deterministic latch to reject the cancel.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,7 +27,7 @@ from typing import Any
 
 import structlog
 
-from mandala.settings import get_settings
+from mandala.core.state import StateStore
 
 log = structlog.get_logger(__name__)
 
@@ -64,7 +65,7 @@ class StatorLatch:
     LATCH_KEY_PREFIX = "mandala:latch"
     DEFAULT_TTL_SECONDS = 14 * 24 * 60 * 60  # 14 days
     
-    def __init__(self, redis: "object", ttl_seconds: int | None = None) -> None:
+    def __init__(self, redis: object, ttl_seconds: int | None = None) -> None:
         """Initialize the Stator's Latch.
         
         Args:
@@ -257,7 +258,7 @@ class StatorLatch:
 async def process_telemetry_with_latch(
     packet: dict[str, Any],
     latch: StatorLatch,
-    state_store: "StateStore | None" = None,
+    state_store: StateStore | None = None,
 ) -> LatchResult:
     """Process telemetry packet using the Stator's Latch pattern.
     

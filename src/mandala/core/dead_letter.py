@@ -25,7 +25,7 @@ log = structlog.get_logger(__name__)
 class DeadLetterQueue:
     """Redis Streams-based dead letter queue for failed events."""
 
-    def __init__(self, redis: "object") -> None:
+    def __init__(self, redis: object) -> None:
         self._redis = redis
         self._stream = "mandala:dlq"
         self._maxlen = 10_000  # Keep last 10k failed events

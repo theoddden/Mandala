@@ -12,7 +12,8 @@ Reference: https://developers.samsara.com/reference
 """
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import structlog
@@ -51,7 +52,7 @@ class SamsaraClient:
             },
         )
 
-    async def __aenter__(self) -> "SamsaraClient":
+    async def __aenter__(self) -> SamsaraClient:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

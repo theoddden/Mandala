@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
 from mandala.core.events.envelope import MandalaEvent
-from mandala.core.zk.circuits import ZKCircuit, ColdChainBreachProof
+from mandala.core.zk.circuits import ColdChainBreachProof, ZKCircuit
 
 log = structlog.get_logger(__name__)
 
@@ -78,7 +77,7 @@ class AsyncProvingService:
                 event, params = await asyncio.wait_for(
                     self._queue.get(), timeout=1.0
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             
             try:
@@ -119,8 +118,8 @@ class AsyncProvingService:
     ) -> None:
         """Store proof in Iceberg event log table."""
         # Import here to avoid circular dependency
-        from mandala.core.events.envelope import new_event
         from mandala.core.event_log import get_event_log
+        from mandala.core.events.envelope import new_event
         
         # Append to Iceberg as new event type
         proof_event = new_event(

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from typing import Iterable, Protocol
+from typing import Protocol
 
 from mandala.core.events.envelope import MandalaEvent
 
@@ -23,7 +24,7 @@ class SinkRecord:
     payload: str               # JSON string of the CloudEvents ``data``
 
     @classmethod
-    def from_event(cls, event: MandalaEvent) -> "SinkRecord":
+    def from_event(cls, event: MandalaEvent) -> SinkRecord:
         return cls(
             event_id=event.id,
             event_type=event.type,

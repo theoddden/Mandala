@@ -6,8 +6,8 @@ at the stream level using the SHA256-derived idempotency key.
 import asyncio
 from datetime import UTC, datetime
 
-import redis.asyncio as redis
 import pytest
+import redis.asyncio as redis
 
 from mandala.core.bus import RedisStreamsBus
 from mandala.core.events.envelope import MandalaEvent, new_event

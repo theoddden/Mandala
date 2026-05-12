@@ -25,7 +25,6 @@ from tenacity import (
 from mandala.core.schema.truck import EquipmentType
 from mandala.settings import get_settings
 
-
 # DAT equipment-code mapping. See DAT API documentation for the
 # authoritative list; this covers v0.1 supported types.
 EQUIPMENT_TO_DAT_CODE: dict[EquipmentType, str] = {
@@ -76,7 +75,7 @@ class DATClient:
         self._token: str | None = None
         self._token_expires_at: float = 0.0
 
-    async def __aenter__(self) -> "DATClient":
+    async def __aenter__(self) -> DATClient:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

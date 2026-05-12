@@ -26,7 +26,7 @@ STATE_DELETE = object()
 
 
 class StateStore:
-    def __init__(self, redis: "object", ttl_seconds: int | None = None) -> None:
+    def __init__(self, redis: object, ttl_seconds: int | None = None) -> None:
         self._r = redis
         self._ttl = ttl_seconds or get_settings().state_ttl_seconds
 

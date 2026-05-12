@@ -15,11 +15,18 @@ The "Geometric Idempotency" principle:
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+import math
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from typing import Any
 
+import structlog
+
 from mandala.settings import get_settings
+
+log = structlog.get_logger(__name__)
 
 
 class GeometricHashProvider(str, Enum):
@@ -86,10 +93,9 @@ class GeometricHashService:
         """
         if self._provider == GeometricHashProvider.H3 and self._h3_lib:
             return self._h3_hash(latitude, longitude, event_time)
-        elif self._provider == GeometricHashProvider.S2 and self._s2_lib:
+        if self._provider == GeometricHashProvider.S2 and self._s2_lib:
             return self._s2_hash(latitude, longitude, event_time)
-        else:
-            return self._geohash_fallback(latitude, longitude, event_time)
+        return self._geohash_fallback(latitude, longitude, event_time)
     
     def _h3_hash(
         self,
@@ -122,13 +128,11 @@ class GeometricHashService:
         when the s2geometry library is not available. For production use with actual
         S2 geometry, install the s2geometry library and this will use it.
         """
-        import math
         
         # Try to use s2geometry library if available
         try:
-            from s2 import s2
+            from s2 import s2, s2cellid
             from s2.geometry import S2LatLng
-            from s2 import s2cellid
             
             # Convert lat/lon to S2LatLng
             lat_lng = S2LatLng.FromDegrees(latitude, longitude)

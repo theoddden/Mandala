@@ -22,6 +22,7 @@ from typing import Any
 import structlog
 
 from mandala.core.events.envelope import MandalaEvent
+from mandala.core.state import StateStore
 from mandala.settings import get_settings
 
 log = structlog.get_logger(__name__)
@@ -76,7 +77,7 @@ class ReorderBuffer:
     
     def __init__(
         self,
-        redis: "object" | None = None,
+        redis: object | None = None,
         max_events_per_entity: int | None = None,
         max_wait_seconds: int | None = None,
         expire_seconds: int | None = None,
@@ -356,7 +357,7 @@ class ReorderBuffer:
         self,
         source_id: str,
         rewind_to: datetime,
-        state_store: "StateStore | None" = None,
+        state_store: StateStore | None = None,
     ) -> dict[str, Any]:
         """Rewind state to a specific point in time.
         
@@ -413,7 +414,7 @@ class ReorderBufferManager:
     
     def __init__(
         self,
-        redis: "object" | None = None,
+        redis: object | None = None,
         **buffer_kwargs: Any,
     ) -> None:
         """Initialize the buffer manager.

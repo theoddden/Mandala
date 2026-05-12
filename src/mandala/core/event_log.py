@@ -16,10 +16,13 @@ The event log is append-only. Events are never deleted or modified.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import AsyncIterator, Protocol
+from typing import Any, Protocol
 
 import structlog
+from pyiceberg.catalog import Catalog
+from pyiceberg.table import Table
 
 from mandala.core.events.envelope import MandalaEvent
 
@@ -49,17 +52,17 @@ class IcebergEventLog:
 
     def __init__(
         self,
-        catalog: "Catalog",
+        catalog: Catalog,
         table_name: str = "mandala.events",
         namespace: str = "mandala",
     ):
         self._catalog = catalog
         self._table_name = table_name
         self._namespace = namespace
-        self._table: "Table | None" = None
+        self._table: Table | None = None
         self._initialized = False
 
-    async def _ensure_table(self) -> "Table":
+    async def _ensure_table(self) -> Table:
         """Ensure Iceberg table exists with proper schema."""
         if self._initialized and self._table is not None:
             return self._table
@@ -68,10 +71,10 @@ class IcebergEventLog:
         loop = asyncio.get_event_loop()
 
         def _create_or_load():
+            from pyiceberg.partitioning import PartitionSpec
             from pyiceberg.schema import Schema
             from pyiceberg.transforms import IdentityTransform
-            from pyiceberg.types import StringType, TimestampType, NestedField
-            from pyiceberg.partitioning import PartitionSpec
+            from pyiceberg.types import NestedField, StringType, TimestampType
 
             # Define schema matching MandalaEvent
             schema = Schema(

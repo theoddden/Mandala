@@ -35,7 +35,7 @@ _SUPPORTED_MODULES = {"graph", "falkordb"}
 class GraphView(MaterializedView):
     name = "graph"
 
-    def __init__(self, redis: "object") -> None:
+    def __init__(self, redis: object) -> None:
         self._r = redis
         self._available: bool | None = None  # lazy probe
 

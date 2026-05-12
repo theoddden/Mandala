@@ -49,7 +49,7 @@ POST_DEBOUNCE_TTL_SECONDS = 21_600  # 6h: avoid re-posting after a re-trigger
 
 
 async def detect_truck_empty(
-    event: MandalaEvent, state: StateStore, redis: "object"
+    event: MandalaEvent, state: StateStore, redis: object
 ) -> list[MandalaEvent]:
     """Translate a delivery confirmation into a ``mandala.truck.empty`` event."""
     if event.type != EventType.SHIPMENT_DELIVERED.value:
@@ -129,7 +129,7 @@ _BOARDS = {
 
 
 async def post_to_loadboards(
-    event: MandalaEvent, state: StateStore, redis: "object"
+    event: MandalaEvent, state: StateStore, redis: object
 ) -> list[MandalaEvent]:
     """Post a freshly-empty truck to every configured load board."""
     if event.type != EventType.TRUCK_EMPTY.value:

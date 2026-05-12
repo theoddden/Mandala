@@ -5,27 +5,27 @@ incoming data into these objects, and every outbound playbook action
 operates on these objects. They are independent of any single vendor's
 data model.
 """
-from mandala.core.schema.geo import GeoPoint, Geofence, BorderCrossing
-from mandala.core.schema.party import Party, Address
+from mandala.core.schema.geo import BorderCrossing, Geofence, GeoPoint
+from mandala.core.schema.identifiers import URN, parse_urn
+from mandala.core.schema.party import Address, Party
 from mandala.core.schema.shipment import (
+    BillOfLading,
+    CustomsEntry,
+    CustomsStatus,
     Shipment,
     ShipmentLeg,
     ShipmentMilestone,
     ShipmentStatus,
-    CustomsStatus,
-    CustomsEntry,
-    BillOfLading,
 )
 from mandala.core.schema.truck import (
-    Truck,
-    TruckTelemetry,
-    TruckPosition,
     ColdChainReading,
     Driver,
     EquipmentType,
     FuelType,
+    Truck,
+    TruckPosition,
+    TruckTelemetry,
 )
-from mandala.core.schema.identifiers import URN, parse_urn
 
 __all__ = [
     "GeoPoint",

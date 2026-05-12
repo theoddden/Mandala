@@ -24,7 +24,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable, Type
+from typing import Any
 
 import structlog
 
@@ -44,7 +44,7 @@ class CircuitBreakerConfig:
     name: str
     failure_threshold: int = 5  # Number of failures before opening
     recovery_timeout: float = 60.0  # Seconds to wait before half-open
-    expected_exception: Type[Exception] = Exception  # Exception type to catch
+    expected_exception: type[Exception] = Exception  # Exception type to catch
     success_threshold: int = 2  # Successes needed to close circuit
 
 
@@ -56,7 +56,7 @@ class CircuitBreaker:
         name: str,
         failure_threshold: int = 5,
         recovery_timeout: float = 60.0,
-        expected_exception: Type[Exception] = Exception,
+        expected_exception: type[Exception] = Exception,
         success_threshold: int = 2,
     ) -> None:
         self._config = CircuitBreakerConfig(

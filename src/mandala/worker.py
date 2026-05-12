@@ -13,8 +13,7 @@ import asyncio
 import os
 import signal
 import socket
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis.asyncio as redis
 import structlog
@@ -28,23 +27,21 @@ from mandala.core.bus import RedisStreamsBus
 from mandala.core.dead_letter import DeadLetterQueue
 from mandala.core.detector_sandbox import DetectorSandboxPool
 from mandala.core.events.envelope import MandalaEvent
-from mandala.core.observability import get_exporter
+from mandala.core.geometric_hash import GeometricHashProvider, GeometricHashService
 from mandala.core.metrics import (
     alert_routing_duration_seconds,
     alerts_routed_total,
     detector_execution_duration_seconds,
-    detector_executions_total,
-    dlq_size,
     dlq_events_total,
     events_processed_total,
     events_processing_duration_seconds,
     start_metrics_server,
     stream_lag_seconds,
 )
-from mandala.core.geometric_hash import GeometricHashService, GeometricHashProvider
+from mandala.core.observability import get_exporter
 from mandala.core.reorder_buffer import ReorderBufferManager
 from mandala.core.state import StateStore
-from mandala.core.stator_latch import StatorLatch, LatchDecision
+from mandala.core.stator_latch import LatchDecision, StatorLatch
 from mandala.core.zk.proving_service import AsyncProvingService
 from mandala.fmcsa import DETECTORS as FMCSA_DETECTORS
 from mandala.loadboard import DETECTORS as LOADBOARD_DETECTORS
@@ -67,7 +64,7 @@ def _request_shutdown(signum, frame):
     log.info("mandala.worker.shutdown_requested", signal=signum)
 
 
-async def _probe_redis_version(redis: "object") -> str:
+async def _probe_redis_version(redis: object) -> str:
     """Probe Redis server version at startup for feature detection."""
     try:
         info = await redis.info("server")  # type: ignore[attr-defined]
@@ -224,11 +221,11 @@ async def run() -> None:
                 for msg_id, event in entity_events:
                     # Concurrency limiter (backpressure control)
                     async with event_semaphore:
-                        event_start = datetime.now(timezone.utc)
+                        event_start = datetime.now(UTC)
                         log.debug("mandala.worker.event", id=event.id, type=event.type, entity=entity_id)
 
                         # Set processed_at timestamp for three-timestamp accounting
-                        event.processed_at = datetime.now(timezone.utc)
+                        event.processed_at = datetime.now(UTC)
                         
                         # --- Deterministic Event-Time Windowing ---
                         # Extract coordinates and compute geometric hash if available
@@ -280,7 +277,7 @@ async def run() -> None:
                                 # Acknowledge and skip detectors (backfill only)
                                 await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
                                 continue
-                            elif latch_decision == LatchDecision.DUPLICATE:
+                            if latch_decision == LatchDecision.DUPLICATE:
                                 # Duplicate event: drop and acknowledge
                                 log.debug(
                                     "stator_latch.duplicate",
@@ -335,15 +332,15 @@ async def run() -> None:
 
                         # Run detectors in parallel with sandbox protection
                         # Sandbox provides timeout and circuit breaker protection
-                        detector_start = datetime.now(timezone.utc)
+                        detector_start = datetime.now(UTC)
                         try:
                             new_events = await detector_sandbox.execute_all(event, state, r)
-                            detector_duration = (datetime.now(timezone.utc) - detector_start).total_seconds()
+                            detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
                             detector_execution_duration_seconds.labels(detector_name="all").observe(detector_duration)
                             
                             for ne in new_events:
                                 # Set processed_at timestamp for three-timestamp accounting
-                                ne.processed_at = datetime.now(timezone.utc)
+                                ne.processed_at = datetime.now(UTC)
                                 # Trace-native: link detector-emitted spans to the
                                 # ingest span (causal parent) so the OTel trace shows
                                 # the full causality chain in any backend.
@@ -370,9 +367,9 @@ async def run() -> None:
                                 if s.alert_routing_enabled and ne.type.startswith("mandala.alert"):
                                     # Check aggregation before routing
                                     if await alert_aggregator.should_route(ne):
-                                        route_start = datetime.now(timezone.utc)
+                                        route_start = datetime.now(UTC)
                                         await alert_router.route(ne)
-                                        route_duration = (datetime.now(timezone.utc) - route_start).total_seconds()
+                                        route_duration = (datetime.now(UTC) - route_start).total_seconds()
                                         alert_routing_duration_seconds.labels(channel="external").observe(route_duration)
                                         alerts_routed_total.labels(channel="external", status="success").inc()
                                     else:
@@ -394,7 +391,7 @@ async def run() -> None:
                                     )
                                     log.info("zk.proof.auto_enqueued", event_id=ne.id)
                         except Exception as exc:  # noqa: BLE001
-                            detector_duration = (datetime.now(timezone.utc) - detector_start).total_seconds()
+                            detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
                             detector_execution_duration_seconds.labels(detector_name="sandbox").observe(detector_duration)
                             log.exception(
                                 "mandala.worker.detector_sandbox_failed",
@@ -409,7 +406,7 @@ async def run() -> None:
                             )
                             dlq_events_total.labels(context="detector").inc()
 
-                        event_duration = (datetime.now(timezone.utc) - event_start).total_seconds()
+                        event_duration = (datetime.now(UTC) - event_start).total_seconds()
                         events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(event_duration)
 
                         # Acknowledge event after successful processing

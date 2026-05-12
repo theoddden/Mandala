@@ -5,7 +5,7 @@ Checks stream length and returns configured HTTP status code when threshold exce
 """
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -44,7 +44,6 @@ class BackpressureMiddleware(BaseHTTPMiddleware):
                     path=request.url.path,
                 )
                 
-                from fastapi import status
                 return Response(
                     content=f"System overloaded. Stream length ({stream_length}) exceeds threshold ({s.backpressure_threshold}). Please retry later.",
                     status_code=s.backpressure_response_code,

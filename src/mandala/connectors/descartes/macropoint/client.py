@@ -43,7 +43,7 @@ class MacroPointClient:
             },
         )
 
-    async def __aenter__(self) -> "MacroPointClient":
+    async def __aenter__(self) -> MacroPointClient:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

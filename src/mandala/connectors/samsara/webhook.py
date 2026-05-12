@@ -7,9 +7,9 @@ shared secret configured in the Samsara webhook UI.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import structlog
-from datetime import UTC, datetime
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
 from mandala.connectors.samsara.normalize import normalize

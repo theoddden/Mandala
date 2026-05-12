@@ -113,7 +113,7 @@ class CargoWiseClient:
             auth=self._auth,
         )
 
-    async def __aenter__(self) -> "CargoWiseClient":
+    async def __aenter__(self) -> CargoWiseClient:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

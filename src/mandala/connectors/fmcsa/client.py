@@ -40,7 +40,7 @@ class FMCSAClient:
             },
         )
 
-    async def __aenter__(self) -> "FMCSAClient":
+    async def __aenter__(self) -> FMCSAClient:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

@@ -19,7 +19,6 @@ from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from typing import Literal
 
-
 # Default replay-protection window. Webhook clocks routinely drift several
 # minutes in either direction, so 5 min is the smallest value that doesn't
 # generate false rejections under normal operation.

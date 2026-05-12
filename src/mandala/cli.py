@@ -59,8 +59,9 @@ def views(rebuild: bool) -> None:
 @click.option("--root", default="./warehouse", show_default=True, help="Output directory for JSONL files.")
 def sink(root: str) -> None:
     """Run the warehouse sink — writes raw_mandala_events JSONL files for dbt-mandala."""
-    from mandala.sinks.runner import run as sink_run
     import asyncio
+
+    from mandala.sinks.runner import run as sink_run
 
     asyncio.run(sink_run(root))
 
@@ -84,7 +85,7 @@ def schema() -> None:
 def replay(from_dt: str, to_dt: str, entity: str | None, detector: str | None, dry_run: bool, stream: bool, count: int) -> None:
     """Replay historical events to fix state after bugs."""
     import asyncio
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     import redis.asyncio as redis
 

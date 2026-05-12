@@ -139,7 +139,7 @@ class ZKCircuit:
             )
             
             # Read generated proof
-            with open("/tmp/proof.json", "r") as f:
+            with open("/tmp/proof.json") as f:
                 proof_data = json.load(f)
             
             # Encode proof as bytes

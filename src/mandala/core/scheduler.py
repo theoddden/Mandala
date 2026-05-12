@@ -6,8 +6,9 @@ Supports cron-style scheduling: interval, fixed times, etc.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import structlog
 
@@ -56,7 +57,7 @@ class Scheduler:
         """Schedule a function to run daily at a specific time."""
         async def _loop() -> None:
             while self._running:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 
                 # If target time has passed today, schedule for tomorrow

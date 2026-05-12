@@ -10,9 +10,11 @@ See docs/integrations/sap.md for integration pattern.
 """
 from __future__ import annotations
 
-import httpx
 from typing import Any
 
+import httpx
+
+from mandala.core.bus import EventBus
 from mandala.core.connector import Connector
 from mandala.core.events.envelope import MandalaEvent
 from mandala.settings import get_settings
@@ -25,7 +27,7 @@ class SAPConnector(Connector):
     Telemetry out: SAP TM shipment changes, SAP EWM inventory changes → Mandala events
     """
 
-    def __init__(self, bus: "EventBus") -> None:
+    def __init__(self, bus: EventBus) -> None:
         s = get_settings()
         super().__init__("sap", bus)
         self.sap_host = s.sap_host

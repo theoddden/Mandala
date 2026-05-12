@@ -14,7 +14,7 @@ import structlog
 from fastapi import FastAPI
 
 from mandala import __version__
-from mandala.core.adaptive_backpressure import AdaptiveBackpressure, BackpressureMiddleware
+from mandala.core.adaptive_backpressure import AdaptiveBackpressure
 from mandala.core.backpressure import BackpressureMiddleware as SimpleBackpressureMiddleware
 from mandala.core.bus import RedisStreamsBus
 from mandala.core.events.envelope import SCHEMA_VERSION
@@ -68,8 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if request.url.path.startswith("/webhooks/") and hasattr(request.app.state, 'adaptive_backpressure') and request.app.state.adaptive_backpressure:
                     should_accept, reason = await request.app.state.adaptive_backpressure.should_accept_new_event()
                     if not should_accept:
-                        from fastapi import status
-                        from fastapi import Response
+                        from fastapi import Response, status
                         return Response(
                             content=f"System degraded: {reason}",
                             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

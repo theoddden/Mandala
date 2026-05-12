@@ -35,7 +35,7 @@ def hash_payload(*parts: str | bytes) -> str:
 class RedisIdempotencyStore:
     """:class:`IdempotencyStore` backed by Redis ``SET NX EX``."""
 
-    def __init__(self, redis: "object", prefix: str = "mandala:idemp:") -> None:
+    def __init__(self, redis: object, prefix: str = "mandala:idemp:") -> None:
         self._redis = redis
         self._prefix = prefix
 

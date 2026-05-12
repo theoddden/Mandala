@@ -8,9 +8,9 @@ expect for date-partitioned external tables.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Iterable
 
 import structlog
 

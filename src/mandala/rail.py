@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import structlog
 
-from mandala.connectors.rail.base import IntermodalEvent
 from mandala.connectors.rail.vizion import VizionRailProvider
 from mandala.core.events.envelope import MandalaEvent, new_event
 from mandala.core.events.types import EventType
@@ -20,14 +19,14 @@ log = structlog.get_logger(__name__)
 _ENRICHMENT_TTL = 3_600  # 1 hour: rail status changes infrequently
 
 
-async def _debounce(redis: "object", key: str, ttl: int = _ENRICHMENT_TTL) -> bool:
+async def _debounce(redis: object, key: str, ttl: int = _ENRICHMENT_TTL) -> bool:
     return bool(
         await redis.set(f"mandala:rail:enrich:{key}", "1", nx=True, ex=ttl)  # type: ignore[attr-defined]
     )
 
 
 async def enrich_container_with_rail(
-    event: MandalaEvent, state: "object", redis: "object"
+    event: MandalaEvent, state: object, redis: object
 ) -> list[MandalaEvent]:
     """Enrich container events with rail status from Vizion API when container ID is present.
 

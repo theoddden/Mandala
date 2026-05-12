@@ -13,8 +13,6 @@ Reference: https://developers.samsara.com/reference
 from __future__ import annotations
 
 import httpx
-from datetime import UTC, datetime
-
 import structlog
 
 from mandala.core.circuit_breaker import CircuitBreaker

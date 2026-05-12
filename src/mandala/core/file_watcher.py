@@ -36,8 +36,8 @@ class FileWatcher:
         self,
         name: str,
         path: str,
-        pattern: str = "*",
         callback: Callable[[str], Any],
+        pattern: str = "*",
     ) -> None:
         """Watch a local directory for new files matching a pattern."""
         async def _loop() -> None:
@@ -81,9 +81,9 @@ class FileWatcher:
         self,
         name: str,
         bucket: str,
+        callback: Callable[[str], Any],
         prefix: str = "",
         pattern: str = "*",
-        callback: Callable[[str], Any],
     ) -> None:
         """Watch an S3 bucket for new files matching a pattern.
         

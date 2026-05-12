@@ -115,7 +115,7 @@ class OTLPExporter:
                 await asyncio.wait_for(
                     self._stopped.wait(), timeout=self.flush_interval_sec
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             await self._flush()
 

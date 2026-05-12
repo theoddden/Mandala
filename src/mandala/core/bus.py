@@ -17,6 +17,7 @@ from typing import AsyncIterator, Protocol
 
 import structlog
 
+from mandala.core.event_log import EventLog
 from mandala.core.events.envelope import MandalaEvent
 from mandala.settings import get_settings
 
@@ -85,7 +86,7 @@ class RedisStreamsBus:
     # 14-day TTL for idempotency keys (matches StateStore TTL)
     IDEMPOTENCY_TTL_SEC = 14 * 24 * 60 * 60  # 14 days in seconds
 
-    def __init__(self, redis: "object", event_log: "EventLog | None" = None) -> None:
+    def __init__(self, redis: object, event_log: EventLog | None = None) -> None:
         self._redis = redis
         self._dedupe_script_sha: str | None = None
         self._event_log = event_log  # Optional Iceberg event log for dual-write

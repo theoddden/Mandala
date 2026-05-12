@@ -5,11 +5,10 @@ and CPU load. Rejects ingestion when system is degraded.
 """
 from __future__ import annotations
 
-import asyncio
-import psutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+import psutil
 import structlog
 
 from mandala.settings import get_settings
@@ -20,7 +19,7 @@ log = structlog.get_logger(__name__)
 class AdaptiveBackpressure:
     """Monitors system health and adapts processing accordingly."""
 
-    def __init__(self, redis: "object") -> None:
+    def __init__(self, redis: object) -> None:
         self._redis = redis
         self._settings = get_settings()
         
@@ -46,7 +45,7 @@ class AdaptiveBackpressure:
             Health status with metrics and recommendations
         """
         health = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "redis_latency_ms": await self._check_redis_latency(),
             "memory_percent": self._check_memory_usage(),
             "cpu_percent": self._check_cpu_usage(),
@@ -78,9 +77,9 @@ class AdaptiveBackpressure:
     async def _check_redis_latency(self) -> float:
         """Check Redis latency via PING."""
         try:
-            start = datetime.now(timezone.utc)
+            start = datetime.now(UTC)
             await self._redis.ping()  # type: ignore[attr-defined]
-            latency_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
+            latency_ms = (datetime.now(UTC) - start).total_seconds() * 1000
             return latency_ms
         except Exception:
             log.exception("redis.latency_check_failed")
@@ -155,7 +154,7 @@ class AdaptiveBackpressure:
         if not health["is_healthy"]:
             if health["recommendation"] == "reject_new":
                 return False, f"System degraded: {health}"
-            elif health["recommendation"] == "reduce_batch":
+            if health["recommendation"] == "reduce_batch":
                 # Accept but with reduced batch size
                 return True, f"Reduced batch size to {self.adapt_batch_size(health)}"
 

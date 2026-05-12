@@ -4,16 +4,18 @@ All connectors (webhook, poll, file, CDC) inherit from this to get:
 - Async lifecycle management (__aenter__/__aexit__)
 - Health reporting via Prometheus
 - Structured logging
-- Graceful shutdown
 """
 from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 from prometheus_client import Counter, Gauge
+
+from mandala.core.bus import EventBus
 
 log = structlog.get_logger(__name__)
 
@@ -46,7 +48,7 @@ class Connector(ABC):
     - Shuts down gracefully
     """
     
-    def __init__(self, name: str, bus: "EventBus") -> None:
+    def __init__(self, name: str, bus: EventBus) -> None:
         self.name = name
         self._bus = bus
         self._running = False
@@ -56,7 +58,7 @@ class Connector(ABC):
         """Connector-specific run logic (poll, watch, etc.)."""
         ...
     
-    async def __aenter__(self) -> "Connector":
+    async def __aenter__(self) -> Connector:
         self._running = True
         log.info("connector.start", connector=self.name)
         connector_healthy.labels(connector=self.name).set(1)

@@ -3,11 +3,11 @@
 Supports:
 - Postgres logical replication (via psycopg3)
 - MySQL binlog (via mysql-replication)
-- Simple polling-based CDC as fallback
 """
 from __future__ import annotations
 
 import asyncio
+from abc import ABC, abstractmethod
 from typing import Any, Callable
 
 import structlog

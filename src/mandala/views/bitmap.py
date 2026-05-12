@@ -61,7 +61,7 @@ POE_INDEX_KEY = "mandala:view:bm:poe_index"
 class BitmapView(MaterializedView):
     name = "bitmap"
 
-    def __init__(self, redis: "object", state: StateStore | None = None) -> None:
+    def __init__(self, redis: object, state: StateStore | None = None) -> None:
         self._r = redis
         self._state = state or StateStore(redis)
 

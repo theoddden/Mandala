@@ -28,7 +28,7 @@ _BORDER_TAGS = {"border_poe", "us-mx", "us-ca", "border", "poe"}
 _DEBOUNCE_TTL = 1800  # 30 min per truck per fence
 
 
-async def _debounce(redis: "object", key: str, ttl: int = _DEBOUNCE_TTL) -> bool:
+async def _debounce(redis: object, key: str, ttl: int = _DEBOUNCE_TTL) -> bool:
     return bool(
         await redis.set(f"mandala:alert:dedup:{key}", "1", nx=True, ex=ttl)  # type: ignore[attr-defined]
     )
@@ -41,7 +41,7 @@ def _is_border_poe(data: dict) -> bool:
 
 
 async def cross_border(
-    event: MandalaEvent, state: StateStore, redis: "object"
+    event: MandalaEvent, state: StateStore, redis: object
 ) -> list[MandalaEvent]:
     if event.type != EventType.TRUCK_GEOFENCE_ENTERED.value:
         return []
@@ -97,7 +97,7 @@ async def cross_border(
 
 
 async def cold_chain(
-    event: MandalaEvent, state: StateStore, redis: "object"
+    event: MandalaEvent, state: StateStore, redis: object
 ) -> list[MandalaEvent]:
     if event.type != EventType.COLD_CHAIN_BREACH.value:
         return []

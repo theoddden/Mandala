@@ -4,9 +4,6 @@ Tests circuit breaker, rate limiter, and adaptive backpressure.
 """
 from __future__ import annotations
 
-import asyncio
-from datetime import UTC, datetime
-
 import pytest
 
 from mandala.core.circuit_breaker import (

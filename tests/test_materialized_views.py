@@ -11,14 +11,11 @@ from datetime import UTC, datetime
 from math import asin, cos, radians, sin, sqrt
 from typing import Any
 
-import pytest
-
 from mandala.core.events.envelope import MandalaEvent, new_event
 from mandala.core.events.types import EventType
 from mandala.views.bitmap import BitmapView
 from mandala.views.geospatial import GeospatialView
 from mandala.views.timeseries import TimeseriesView
-
 
 # -----------------------------------------------------------------------------
 # Minimal fake async Redis — just enough for the view implementations.
@@ -367,9 +364,9 @@ def test_bitmap_view_at_poe_without_filing() -> None:
             await view.apply(evt)
 
         # A has its link and customs filed; B has nothing.
-        await r.set(f"mandala:link:shipment:urn:mandala:shipment:sA", urn_a)
+        await r.set("mandala:link:shipment:urn:mandala:shipment:sA", urn_a)
         # Use StateStore to register the link so the CUSTOMS_FILED handler finds it.
-        await r.set(f"mandala:link:shipment:urn:mandala:shipment:sA", urn_a)
+        await r.set("mandala:link:shipment:urn:mandala:shipment:sA", urn_a)
         filed = new_event(
             type=EventType.CUSTOMS_FILED,
             source="mandala/test",

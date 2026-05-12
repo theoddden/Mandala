@@ -10,8 +10,9 @@ unit-test, no I/O, no config.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from mandala.core.events.envelope import MandalaEvent, new_event
 from mandala.core.events.types import EventType

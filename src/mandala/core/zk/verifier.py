@@ -6,10 +6,10 @@ Supports both local verification and remote verification via HTTP endpoints.
 from __future__ import annotations
 
 import asyncio
-import httpx
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
+import httpx
 import structlog
 
 from mandala.core.zk.circuits import ColdChainBreachProof
@@ -69,8 +69,8 @@ class ZKVerifier:
         
         def _verify_sync():
             # Call snarkjs or circomlib-rs
-            import subprocess
             import json
+            import subprocess
             import tempfile
             
             # Write proof and public inputs to temp files

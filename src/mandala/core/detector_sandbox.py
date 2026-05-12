@@ -6,8 +6,7 @@ the entire worker process.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
 
 import structlog
 
@@ -38,7 +37,7 @@ class DetectorSandbox:
         )
 
     async def execute(
-        self, event: MandalaEvent, state: StateStore, redis: "object"
+        self, event: MandalaEvent, state: StateStore, redis: object
     ) -> list[MandalaEvent]:
         """Execute detector with timeout and circuit breaker protection."""
         # Check circuit breaker
@@ -61,7 +60,7 @@ class DetectorSandbox:
             self._circuit_breaker.record_success()
             return result
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.error(
                 "detector.timeout",
                 detector=self._detector_name,
@@ -109,7 +108,7 @@ class DetectorSandboxPool:
             )
 
     async def execute_all(
-        self, event: MandalaEvent, state: StateStore, redis: "object"
+        self, event: MandalaEvent, state: StateStore, redis: object
     ) -> list[MandalaEvent]:
         """Execute all detectors in parallel with sandbox protection."""
         tasks = [

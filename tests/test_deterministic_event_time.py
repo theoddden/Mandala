@@ -6,8 +6,7 @@ spatial data.
 """
 from __future__ import annotations
 
-import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
@@ -265,7 +264,7 @@ class TestReorderBuffer:
             id="event-1",
             source="test",
             type="test.event",
-            time=datetime(2026, 5, 11, 12:0, 0, tzinfo=UTC),
+            time=datetime(2026, 5, 11, 12, 0, 0, tzinfo=UTC),
         )
         event2 = MandalaEvent(
             id="event-2",

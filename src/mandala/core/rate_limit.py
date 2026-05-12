@@ -6,7 +6,7 @@ Limits requests per IP address with configurable rate and burst size.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
