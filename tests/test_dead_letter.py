@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from mandala.core.dead_letter import DeadLetterQueue
-from mandala.core.events.envelope import MandalaEnvelope
-from mandala.core.events.types import MandalaEvent
+from mandala.core.events.envelope import MandalaEvent, MandalaEnvelope, new_event
 
 
 class TestDeadLetterQueue:

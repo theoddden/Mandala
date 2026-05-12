@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from mandala.core.bus import EventBus, EventProcessor
-from mandala.core.events.envelope import MandalaEnvelope
-from mandala.core.events.types import MandalaEvent
+from mandala.core.events.envelope import MandalaEnvelope, MandalaEvent
 
 
 class TestEventBus:

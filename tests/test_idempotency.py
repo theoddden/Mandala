@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from mandala.core.events.envelope import MandalaEvent
 from mandala.core.events.idempotency import IdempotencyKey, IdempotencyManager
-from mandala.core.events.types import MandalaEvent
 
 
 class TestIdempotencyKey:
