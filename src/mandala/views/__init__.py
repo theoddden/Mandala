@@ -12,6 +12,7 @@ Views are:
   positions → ``GEOSEARCH`` answers "trucks within N mi of <point>".
 * :class:`mandala.views.timeseries.TimeseriesView` — sorted-set time series
   of cold-chain readings + a global breach index.
+"""
 
 from __future__ import annotations
 
