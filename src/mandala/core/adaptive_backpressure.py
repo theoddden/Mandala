@@ -6,7 +6,7 @@ and CPU load. Rejects ingestion when system is degraded.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 import structlog

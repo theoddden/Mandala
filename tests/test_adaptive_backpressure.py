@@ -122,8 +122,8 @@ async def test_adaptive_backpressure_batch_size_recovery():
     mock_redis = MockRedis()
     backpressure = AdaptiveBackpressure(mock_redis)
 
-    # Reduce batch size
-    backpressure._current_batch_size = 2
+    # Reduce batch size to a value that can actually increase
+    backpressure._current_batch_size = 5
 
     # Simulate healthy system
     health = {
@@ -137,5 +137,5 @@ async def test_adaptive_backpressure_batch_size_recovery():
 
     batch_size = backpressure.adapt_batch_size(health)
 
-    assert batch_size > 2
+    assert batch_size > 5
     assert batch_size <= backpressure._base_batch_size

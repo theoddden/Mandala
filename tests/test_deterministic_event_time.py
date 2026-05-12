@@ -309,7 +309,7 @@ class TestReorderBuffer:
             id="event-2",
             source="test",
             type="test.event",
-            time=datetime(2026, 5, 11, 12, 30, 0, tzinfo=UTC),
+            time=datetime(2026, 5, 11, 12, 0, 30, tzinfo=UTC),  # 30 seconds later (less than 60s gap threshold)
         )
 
         # Add events in order
@@ -320,6 +320,11 @@ class TestReorderBuffer:
         released = await buffer.release_ready(source_id)
         assert len(released) == 1
         assert released[0].id == "event-1"
+
+        # Release again to get event2
+        released = await buffer.release_ready(source_id)
+        assert len(released) == 1
+        assert released[0].id == "event-2"
 
     @pytest.mark.asyncio
     async def test_flush_all_events(self, redis_mock):

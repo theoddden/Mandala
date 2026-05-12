@@ -16,12 +16,11 @@ Benefits:
 
 The event log is append-only. Events are never deleted or modified.
 """
-
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import structlog
