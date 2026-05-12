@@ -140,7 +140,6 @@ async def dead_zone(event: MandalaEvent, state: StateStore, redis: object) -> li
     When the gap exceeds the threshold, emits a dead zone event with the
     last known location. This builds an empirically-derived connectivity map.
     """
-    # Only trigger on position events
     if event.type != EventType.TRUCK_POSITION.value:
         return []
 
@@ -148,12 +147,11 @@ async def dead_zone(event: MandalaEvent, state: StateStore, redis: object) -> li
     if not truck_urn:
         return []
 
-    # Get last committed time from Stator's Latch via Redis
     latch_key = f"mandala:latch:{truck_urn}"
     last_committed_raw = await redis.get(latch_key)  # type: ignore[attr-defined]
 
     if not last_committed_raw:
-        return []  # First event, no baseline
+        return []
 
     if isinstance(last_committed_raw, bytes):
         last_committed_raw = last_committed_raw.decode()
@@ -166,13 +164,11 @@ async def dead_zone(event: MandalaEvent, state: StateStore, redis: object) -> li
     time_gap = (event.time - last_committed).total_seconds()
 
     if time_gap < (_DEAD_ZONE_THRESHOLD_MINUTES * 60):
-        return []  # Normal ping interval
+        return []
 
-    # This is a dead zone - log the last known location
     data = event.data if isinstance(event.data, dict) else {}
     position = data.get("position") or {}
 
-    # Debounce to prevent spamming dead zone events for the same location
     geo_key = f"{position.get('lat'):.4f},{position.get('lon'):.4f}"
     if not await _debounce(redis, f"deadzone:{truck_urn}:{geo_key}", ttl=3600):
         return []
@@ -185,7 +181,6 @@ async def dead_zone(event: MandalaEvent, state: StateStore, redis: object) -> li
         last_known_lon=position.get("lon"),
     )
 
-    # Emit dead zone event with spatial metadata
     return [
         new_event(
             type=DEAD_ZONE_DETECTED,

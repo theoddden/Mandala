@@ -12,27 +12,21 @@ Views are:
   positions → ``GEOSEARCH`` answers "trucks within N mi of <point>".
 * :class:`mandala.views.timeseries.TimeseriesView` — sorted-set time series
   of cold-chain readings + a global breach index.
-* :class:`mandala.views.bitmap.BitmapView` — per-POE presence / customs
-  filing bitmaps → boolean set algebra for "at POE without filing".
-* :class:`mandala.views.graph.GraphView` — optional RedisGraph projection
-  of truck ↔ shipment ↔ party relationships for multi-hop queries.
-
-All views are **idempotent** (safe to re-apply the same event) and
-**rebuildable** (can be rehydrated by replaying the stream from ``0``).
-"""
 
 from __future__ import annotations
 
 from mandala.views.base import MaterializedView
 from mandala.views.bitmap import BitmapView
+from mandala.views.dead_zone import DeadZoneView
 from mandala.views.geospatial import GeospatialView
 from mandala.views.graph import GraphView
 from mandala.views.timeseries import TimeseriesView
 
 __all__ = [
+    "MaterializedView",
     "BitmapView",
+    "DeadZoneView",
     "GeospatialView",
     "GraphView",
-    "MaterializedView",
     "TimeseriesView",
 ]

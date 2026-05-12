@@ -206,11 +206,11 @@ async def tool_get_entity_neighbors(urn: str, depth: int = 2) -> dict[str, Any]:
 
 async def tool_get_dead_zones_near(lat: float, lon: float, radius_km: float = 50.0, limit: int = 100) -> dict[str, Any]:
     """Return dead zones (connectivity gaps) within radius_km of a location."""
-    from mandala.views.geospatial import GeospatialView
+    from mandala.views.dead_zone import DeadZoneView
 
     state, r = await _state()
     try:
-        view = GeospatialView(r)
+        view = DeadZoneView(r)
         radius_mi = radius_km * 0.621371
         dead_zones = await view.dead_zones_near(lat=lat, lon=lon, radius_mi=radius_mi, limit=limit)
         return {

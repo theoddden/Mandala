@@ -32,6 +32,7 @@ from mandala.core.state import StateStore
 from mandala.settings import get_settings
 from mandala.views.base import MaterializedView
 from mandala.views.bitmap import BitmapView
+from mandala.views.dead_zone import DeadZoneView
 from mandala.views.geospatial import GeospatialView
 from mandala.views.graph import GraphView
 from mandala.views.timeseries import TimeseriesView
@@ -82,18 +83,17 @@ def _build_views(r: object) -> list[MaterializedView]:
         views.append(BitmapView(r, StateStore(r)))
     if s.views_graph_enabled:
         views.append(GraphView(r))
+    if s.views_dead_zone_enabled:
+        views.append(DeadZoneView(r))
     return views
 
 
 async def _rebuild_views(r: object, views: list[MaterializedView]) -> None:
     """Delete all view keys from Redis to trigger a full rebuild."""
     log.info("mandala.views.rebuild_start", views=[v.name for v in views])
-    # Pattern for all view keys
     patterns = [
-        "mandala:view:gs:*",  # geospatial
-        "mandala:view:ts:*",  # timeseries
-        "mandala:view:bm:*",  # bitmap
-        "mandala:view:graph:*",  # graph
+        "mandala:view:geo:*",
+        "mandala:view:dead_zones",
     ]
     for pattern in patterns:
         try:

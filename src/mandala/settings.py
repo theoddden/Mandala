@@ -147,6 +147,7 @@ class Settings(BaseSettings):
     views_timeseries_enabled: bool = True
     views_bitmap_enabled: bool = True
     views_graph_enabled: bool = False  # requires RedisGraph/FalkorDB module
+    views_dead_zone_enabled: bool = True
     views_timeseries_ttl_seconds: int = 7 * 86_400  # 7 days of cold-chain readings
 
     # Metrics (Prometheus)
