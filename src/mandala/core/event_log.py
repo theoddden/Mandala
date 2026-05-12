@@ -18,16 +18,24 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import datetime, UTC
 from typing import Any, Protocol
 
 import structlog
-from pyiceberg.catalog import Catalog
-from pyiceberg.table import Table
 
 from mandala.core.events.envelope import MandalaEvent
 
 log = structlog.get_logger(__name__)
+
+# Optional: pyiceberg is only needed if event_log_enabled is set
+try:
+    from pyiceberg.catalog import Catalog
+    from pyiceberg.table import Table
+    PYICEBERG_AVAILABLE = True
+except ImportError:
+    PYICEBERG_AVAILABLE = False
+    Catalog = None  # type: ignore
+    Table = None  # type: ignore
 
 
 class EventLog(Protocol):
