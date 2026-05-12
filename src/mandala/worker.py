@@ -63,15 +63,8 @@ if s.pii_detection_enabled:
 if s.change_tracking_enabled:
     change_tracker = ChangeTracker(enabled=True)
     COMPLIANCE_DETECTORS.append(change_tracker)
-(
-    
-   
-   
-   _DETECTORS
-    + WAREHOUSE
-   
-)
-DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETECTORS + COMPLIANCE_DETECTORS
+
+DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETECTORS + WAREHOUSE_DETECTORS + COMPLIANCE_DETECTORS
 
 log = structlog.get_logger(__name__)
 
