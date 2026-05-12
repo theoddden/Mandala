@@ -76,9 +76,9 @@ async def test_dead_letter_queue_read():
     from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
-    mock_redis.xrevrange = AsyncMock(return_value=[
-        (b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id"}, "error": "test"}).encode()})
-    ])
+    mock_redis.xrevrange = AsyncMock(
+        return_value=[(b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id"}, "error": "test"}).encode()})]
+    )
     dlq = DeadLetterQueue(mock_redis)
 
     entries = await dlq.read(count=10)
@@ -110,17 +110,23 @@ async def test_dead_letter_queue_replay():
     from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
-    mock_redis.xrange = AsyncMock(return_value=[
-        (b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id", "type": "test.event", "source": "test"}}).encode()})
-    ])
+    mock_redis.xrange = AsyncMock(
+        return_value=[
+            (
+                b"12345-0",
+                {b"entry": json.dumps({"event": {"id": "test-id", "type": "test.event", "source": "test"}}).encode()},
+            )
+        ]
+    )
     mock_redis.xdel = AsyncMock()
     mock_settings = Mock()
     mock_settings.stream_inbound = "mandala:inbound"
     mock_settings.stream_maxlen = 10000
 
-    with patch("mandala.core.dead_letter.get_settings", return_value=mock_settings), patch(
-        "mandala.core.bus.RedisStreamsBus"
-    ) as MockBus:
+    with (
+        patch("mandala.core.dead_letter.get_settings", return_value=mock_settings),
+        patch("mandala.core.bus.RedisStreamsBus") as MockBus,
+    ):
         mock_bus = AsyncMock()
         mock_bus.publish = AsyncMock(return_value="msg-id")
         MockBus.return_value = mock_bus
@@ -171,9 +177,11 @@ async def test_dead_letter_queue_stats():
 
     mock_redis = AsyncMock()
     mock_redis.xlen = AsyncMock(return_value=5)
-    mock_redis.xrange = AsyncMock(return_value=[
-        (b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id"}, "failed_at": "2024-01-01"}).encode()})
-    ])
+    mock_redis.xrange = AsyncMock(
+        return_value=[
+            (b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id"}, "failed_at": "2024-01-01"}).encode()})
+        ]
+    )
     dlq = DeadLetterQueue(mock_redis)
 
     stats = await dlq.stats()
@@ -224,9 +232,14 @@ async def test_schedule_retry():
     from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
-    mock_redis.xrange = AsyncMock(return_value=[
-        (b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id"}, "retryable": True, "retry_count": 0}).encode()})
-    ])
+    mock_redis.xrange = AsyncMock(
+        return_value=[
+            (
+                b"12345-0",
+                {b"entry": json.dumps({"event": {"id": "test-id"}, "retryable": True, "retry_count": 0}).encode()},
+            )
+        ]
+    )
     mock_redis.zadd = AsyncMock()
     mock_redis.xdel = AsyncMock()
     mock_redis.xadd = AsyncMock()
@@ -247,9 +260,9 @@ async def test_schedule_retry_not_retryable():
     from mandala.core.dead_letter import DeadLetterQueue
 
     mock_redis = AsyncMock()
-    mock_redis.xrange = AsyncMock(return_value=[
-        (b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id"}, "retryable": False}).encode()})
-    ])
+    mock_redis.xrange = AsyncMock(
+        return_value=[(b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id"}, "retryable": False}).encode()})]
+    )
     dlq = DeadLetterQueue(mock_redis)
 
     result = await dlq.schedule_retry("12345-0")
@@ -280,18 +293,24 @@ async def test_process_retries():
 
     mock_redis = AsyncMock()
     mock_redis.zrangebyscore = AsyncMock(return_value=[b"12345-0"])
-    mock_redis.xrange = AsyncMock(return_value=[
-        (b"12345-0", {b"entry": json.dumps({"event": {"id": "test-id", "type": "test.event", "source": "test"}}).encode()})
-    ])
+    mock_redis.xrange = AsyncMock(
+        return_value=[
+            (
+                b"12345-0",
+                {b"entry": json.dumps({"event": {"id": "test-id", "type": "test.event", "source": "test"}}).encode()},
+            )
+        ]
+    )
     mock_redis.zrem = AsyncMock()
     mock_redis.xdel = AsyncMock()
     mock_settings = Mock()
     mock_settings.stream_inbound = "mandala:inbound"
     mock_settings.stream_maxlen = 10000
 
-    with patch("mandala.core.dead_letter.get_settings", return_value=mock_settings), patch(
-        "mandala.core.bus.RedisStreamsBus"
-    ) as MockBus:
+    with (
+        patch("mandala.core.dead_letter.get_settings", return_value=mock_settings),
+        patch("mandala.core.bus.RedisStreamsBus") as MockBus,
+    ):
         mock_bus = AsyncMock()
         mock_bus.publish = AsyncMock(return_value="msg-id")
         MockBus.return_value = mock_bus

@@ -183,8 +183,9 @@ async def test_run_no_views():
     mock_settings.views_graph_enabled = False
     mock_settings.views_dead_zone_enabled = False
 
-    with patch("mandala.views.runner.get_settings", return_value=mock_settings), patch(
-        "mandala.views.runner.redis.from_url", return_value=mock_redis
+    with (
+        patch("mandala.views.runner.get_settings", return_value=mock_settings),
+        patch("mandala.views.runner.redis.from_url", return_value=mock_redis),
     ):
         await run()
 
@@ -215,10 +216,11 @@ async def test_run_with_views():
     mock_settings.views_consumer_group = "mandala:views"
     mock_settings.metrics_enabled = False
 
-    with patch("mandala.views.runner.get_settings", return_value=mock_settings), patch(
-        "mandala.views.runner.redis.from_url", return_value=mock_redis
-    ), patch("mandala.views.runner.RedisStreamsBus", return_value=mock_bus), pytest.raises(
-        asyncio.CancelledError
+    with (
+        patch("mandala.views.runner.get_settings", return_value=mock_settings),
+        patch("mandala.views.runner.redis.from_url", return_value=mock_redis),
+        patch("mandala.views.runner.RedisStreamsBus", return_value=mock_bus),
+        pytest.raises(asyncio.CancelledError),
     ):
         await run()
 

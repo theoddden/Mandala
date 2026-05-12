@@ -13,7 +13,3 @@ def test_metrics_module_imports():
 
     # Just verify module loads without errors
     assert metrics is not None
-
-
-
-

@@ -122,9 +122,11 @@ async def test_redis_streams_bus_consume():
 
     mock_redis = AsyncMock()
     mock_redis.xgroup_create = AsyncMock()
-    mock_redis.xreadgroup = AsyncMock(return_value=[
-        (b"test-stream", [(b"12345-0", {b"e": b'{"type":"test.event","source":"test","data":{"test":"value"}}'})])
-    ])
+    mock_redis.xreadgroup = AsyncMock(
+        return_value=[
+            (b"test-stream", [(b"12345-0", {b"e": b'{"type":"test.event","source":"test","data":{"test":"value"}}'})])
+        ]
+    )
     mock_settings = Mock()
     mock_settings.stream_maxlen = 10000
 
@@ -167,9 +169,7 @@ async def test_redis_streams_bus_consume_malformed():
     mock_redis = AsyncMock()
     mock_redis.xgroup_create = AsyncMock()
     mock_redis.xack = AsyncMock()
-    mock_redis.xreadgroup = AsyncMock(return_value=[
-        ("test-stream", [(b"12345-0", {b"e": b"invalid json"})])
-    ])
+    mock_redis.xreadgroup = AsyncMock(return_value=[("test-stream", [(b"12345-0", {b"e": b"invalid json"})])])
     mock_settings = Mock()
     mock_settings.stream_maxlen = 10000
 

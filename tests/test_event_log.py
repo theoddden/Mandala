@@ -131,28 +131,34 @@ async def test_iceberg_event_log_query():
     # Mock PyArrow table
     mock_arrow_table = Mock()
     mock_arrow_table.num_rows = 1
-    mock_arrow_table.slice = Mock(return_value=Mock(to_pydict=Mock(return_value={
-        "id": ["test-id"],
-        "source": ["test"],
-        "type": ["test.event"],
-        "specversion": ["1.0"],
-        "time": ["2024-01-01T00:00:00Z"],
-        "subject": ["test-entity"],
-        "datacontenttype": ["application/json"],
-        "data": ['{"test": "value"}'],
-        "mandalaschemaversion": ["1.0"],
-        "mandalaingestid": [None],
-        "mandalaidempotencykey": [None],
-        "traceparent": [None],
-        "tracestate": [None],
-        "received_at": [None],
-        "processed_at": [None],
-        "trace_id": [None],
-        "span_id": [None],
-        "parent_span_id": [None],
-        "end_time": [None],
-        "attributes": [None],
-    })))
+    mock_arrow_table.slice = Mock(
+        return_value=Mock(
+            to_pydict=Mock(
+                return_value={
+                    "id": ["test-id"],
+                    "source": ["test"],
+                    "type": ["test.event"],
+                    "specversion": ["1.0"],
+                    "time": ["2024-01-01T00:00:00Z"],
+                    "subject": ["test-entity"],
+                    "datacontenttype": ["application/json"],
+                    "data": ['{"test": "value"}'],
+                    "mandalaschemaversion": ["1.0"],
+                    "mandalaingestid": [None],
+                    "mandalaidempotencykey": [None],
+                    "traceparent": [None],
+                    "tracestate": [None],
+                    "received_at": [None],
+                    "processed_at": [None],
+                    "trace_id": [None],
+                    "span_id": [None],
+                    "parent_span_id": [None],
+                    "end_time": [None],
+                    "attributes": [None],
+                }
+            )
+        )
+    )
     mock_scan_result = Mock()
     mock_scan_result.to_arrow = Mock(return_value=mock_arrow_table)
     mock_table.scan = Mock(return_value=mock_scan_result)
@@ -193,9 +199,7 @@ async def test_iceberg_event_log_query_with_time_range():
     log = IcebergEventLog(mock_catalog, table_name="test.events", namespace="test")
 
     events = []
-    async for event in log.query(
-        time_range=(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
-    ):
+    async for event in log.query(time_range=(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))):
         events.append(event)
 
     assert len(events) == 0
