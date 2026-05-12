@@ -209,6 +209,7 @@ class TestMandalaEnvelope:
     def test_envelope_get_age(self, envelope):
         """Test getting envelope age."""
         import time
+
         time.sleep(0.1)
         age = envelope.get_age()
         assert age >= 0.1  # At least 100ms should have passed
@@ -221,14 +222,13 @@ class TestMandalaEnvelope:
         """Test checking if envelope is expired with custom TTL."""
         # Create envelope with old received_at
         old_time = datetime(2026, 5, 11, 12, 0, 0, tzinfo=timezone.utc)
-        envelope = MandalaEnvelope(
-            event=envelope.event, received_at=old_time
-        )
+        envelope = MandalaEnvelope(event=envelope.event, received_at=old_time)
         assert envelope.is_expired(ttl_seconds=1) is True
 
     def test_envelope_to_json(self, envelope):
         """Test converting envelope to JSON string."""
         import json
+
         json_str = envelope.to_json()
         data = json.loads(json_str)
         assert "event" in data
@@ -237,6 +237,7 @@ class TestMandalaEnvelope:
     def test_envelope_from_json(self, envelope):
         """Test creating envelope from JSON string."""
         import json
+
         json_str = envelope.to_json()
         new_envelope = MandalaEnvelope.from_json(json_str)
         assert new_envelope.event.id == envelope.event.id

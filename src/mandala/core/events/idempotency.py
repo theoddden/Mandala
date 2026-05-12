@@ -53,7 +53,9 @@ class IdempotencyKey:
     """Helper class for generating idempotency keys from events."""
 
     @staticmethod
-    def from_event(event: object, attributes: list[str] | None = None, include_data: bool = False, prefix: str = "") -> str:
+    def from_event(
+        event: object, attributes: list[str] | None = None, include_data: bool = False, prefix: str = ""
+    ) -> str:
         """Generate an idempotency key from an event.
 
         Args:
@@ -126,11 +128,7 @@ class IdempotencyManager:
             return
 
         ttl = ttl or self._ttl
-        await self._redis.setex(  # type: ignore[attr-defined]
-            f"mandala:idemp:{key}",
-            ttl,
-            metadata or "1"
-        )
+        await self._redis.setex(f"mandala:idemp:{key}", ttl, metadata or "1")  # type: ignore[attr-defined]
 
     async def check_and_mark(self, key: str) -> bool:
         """Atomically check if key is processed and mark it if not.
@@ -256,4 +254,3 @@ class IdempotencyManager:
             0 (Redis handles TTL automatically)
         """
         return 0
-

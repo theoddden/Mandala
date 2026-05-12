@@ -210,9 +210,7 @@ class TestEventProcessor:
     @pytest.mark.asyncio
     async def test_process_non_matching_event(self, processor, mock_handler):
         """Test processing an event that doesn't match the filter."""
-        processor = EventProcessor(
-            handler=mock_handler, filter_types=["other.event"]
-        )
+        processor = EventProcessor(handler=mock_handler, filter_types=["other.event"])
         event = MandalaEvent(
             id="test-1",
             source="test",

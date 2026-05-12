@@ -55,6 +55,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_records_success(self, circuit_breaker):
         """Test that successful calls are recorded."""
+
         async def success_func():
             return "success"
 
@@ -67,6 +68,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_records_failure(self, circuit_breaker):
         """Test that failed calls are recorded."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -79,6 +81,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_opens_after_threshold(self, circuit_breaker):
         """Test that circuit opens after failure threshold is reached."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -92,6 +95,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_rejects_when_open(self, circuit_breaker):
         """Test that calls are rejected when circuit is open."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -105,10 +109,9 @@ class TestCircuitBreakerExtended:
             await circuit_breaker.call(fail_func)
 
     @pytest.mark.asyncio
-    async def test_circuit_breaker_transitions_to_half_open_after_timeout(
-        self, circuit_breaker
-    ):
+    async def test_circuit_breaker_transitions_to_half_open_after_timeout(self, circuit_breaker):
         """Test that circuit transitions to half-open after timeout."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -118,9 +121,7 @@ class TestCircuitBreakerExtended:
                 await circuit_breaker.call(fail_func)
 
         # Set last failure time to past
-        circuit_breaker._last_failure_time = datetime.now(timezone.utc) - timedelta(
-            seconds=61
-        )
+        circuit_breaker._last_failure_time = datetime.now(timezone.utc) - timedelta(seconds=61)
 
         # Check state
         await circuit_breaker.check_state()
@@ -130,6 +131,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_closes_after_success_threshold(self, circuit_breaker):
         """Test that circuit closes after success threshold in half-open."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -139,9 +141,7 @@ class TestCircuitBreakerExtended:
                 await circuit_breaker.call(fail_func)
 
         # Set last failure time to past to transition to half-open
-        circuit_breaker._last_failure_time = datetime.now(timezone.utc) - timedelta(
-            seconds=61
-        )
+        circuit_breaker._last_failure_time = datetime.now(timezone.utc) - timedelta(seconds=61)
         await circuit_breaker.check_state()
 
         # Reset success count
@@ -159,6 +159,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_reopens_on_failure_in_half_open(self, circuit_breaker):
         """Test that circuit reopens if failure occurs in half-open state."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -168,9 +169,7 @@ class TestCircuitBreakerExtended:
                 await circuit_breaker.call(fail_func)
 
         # Transition to half-open
-        circuit_breaker._last_failure_time = datetime.now(timezone.utc) - timedelta(
-            seconds=61
-        )
+        circuit_breaker._last_failure_time = datetime.now(timezone.utc) - timedelta(seconds=61)
         await circuit_breaker.check_state()
 
         # Fail in half-open
@@ -182,6 +181,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_reset(self, circuit_breaker):
         """Test resetting the circuit breaker."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -203,6 +203,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_get_stats(self, circuit_breaker):
         """Test getting circuit breaker statistics."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -236,10 +237,9 @@ class TestCircuitBreakerExtended:
         assert circuit_breaker._failure_count == 1
 
     @pytest.mark.asyncio
-    async def test_circuit_breaker_context_manager_rejects_when_open(
-        self, circuit_breaker
-    ):
+    async def test_circuit_breaker_context_manager_rejects_when_open(self, circuit_breaker):
         """Test context manager rejects when circuit is open."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -298,6 +298,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_with_timeout(self, circuit_breaker):
         """Test circuit breaker with call timeout."""
+
         async def slow_func():
             await asyncio.sleep(2)
             return "success"
@@ -312,6 +313,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_concurrent_calls(self, circuit_breaker):
         """Test circuit breaker with concurrent calls."""
+
         async def success_func():
             await asyncio.sleep(0.01)
             return "success"
@@ -326,6 +328,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_fallback_function(self, circuit_breaker):
         """Test circuit breaker with fallback function."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -339,6 +342,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_fallback_not_called_on_success(self, circuit_breaker):
         """Test that fallback is not called on success."""
+
         async def success_func():
             return "success"
 
@@ -368,6 +372,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_with_retry_exhausted(self, circuit_breaker):
         """Test circuit breaker when retries are exhausted."""
+
         async def fail_func():
             raise Exception("Test error")
 
@@ -380,6 +385,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_metrics_collection(self, circuit_breaker):
         """Test that circuit breaker collects metrics."""
+
         async def success_func():
             return "success"
 

@@ -125,9 +125,7 @@ class TestGeometricHashServiceExtended:
 
     def test_compute_delta_t_vector_single_point(self):
         """Test delta t vector with single point."""
-        positions = [
-            {"lat": 40.7128, "lng": -74.0060, "time": datetime(2026, 5, 12, 12, 0, 0, tzinfo=timezone.utc)}
-        ]
+        positions = [{"lat": 40.7128, "lng": -74.0060, "time": datetime(2026, 5, 12, 12, 0, 0, tzinfo=timezone.utc)}]
         delta_t = compute_delta_t_vector(positions)
         assert delta_t == []
 
@@ -138,9 +136,7 @@ class TestGeometricHashServiceExtended:
         event_type = "position.update"
         source_id = "truck-123"
 
-        key = generate_geometric_idempotency_key(
-            lat, lng, event_type, source_id, level=10
-        )
+        key = generate_geometric_idempotency_key(lat, lng, event_type, source_id, level=10)
         assert key is not None
         assert isinstance(key, str)
 
@@ -151,23 +147,15 @@ class TestGeometricHashServiceExtended:
         event_type = "position.update"
         source_id = "truck-123"
 
-        key1 = generate_geometric_idempotency_key(
-            lat, lng, event_type, source_id, level=10
-        )
-        key2 = generate_geometric_idempotency_key(
-            lat, lng, event_type, source_id, level=10
-        )
+        key1 = generate_geometric_idempotency_key(lat, lng, event_type, source_id, level=10)
+        key2 = generate_geometric_idempotency_key(lat, lng, event_type, source_id, level=10)
 
         assert key1 == key2
 
     def test_generate_geometric_idempotency_key_different_inputs(self):
         """Test that different inputs produce different keys."""
-        key1 = generate_geometric_idempotency_key(
-            40.7128, -74.0060, "position.update", "truck-123", level=10
-        )
-        key2 = generate_geometric_idempotency_key(
-            34.0522, -118.2437, "position.update", "truck-123", level=10
-        )
+        key1 = generate_geometric_idempotency_key(40.7128, -74.0060, "position.update", "truck-123", level=10)
+        key2 = generate_geometric_idempotency_key(34.0522, -118.2437, "position.update", "truck-123", level=10)
 
         assert key1 != key2
 
@@ -185,7 +173,11 @@ class TestGeometricHashServiceExtended:
         """Test detecting incoherent movement."""
         positions = [
             {"lat": 40.7128, "lng": -74.0060, "time": datetime(2026, 5, 12, 12, 0, 0, tzinfo=timezone.utc)},
-            {"lat": 34.0522, "lng": -118.2437, "time": datetime(2026, 5, 12, 12, 1, 0, tzinfo=timezone.utc)},  # Impossible in 1 minute
+            {
+                "lat": 34.0522,
+                "lng": -118.2437,
+                "time": datetime(2026, 5, 12, 12, 1, 0, tzinfo=timezone.utc),
+            },  # Impossible in 1 minute
         ]
 
         is_coherent = check_spatial_coherence(positions, max_speed=100)
@@ -193,9 +185,7 @@ class TestGeometricHashServiceExtended:
 
     def test_check_spatial_coherence_single_point(self):
         """Test spatial coherence with single point."""
-        positions = [
-            {"lat": 40.7128, "lng": -74.0060, "time": datetime(2026, 5, 12, 12, 0, 0, tzinfo=timezone.utc)}
-        ]
+        positions = [{"lat": 40.7128, "lng": -74.0060, "time": datetime(2026, 5, 12, 12, 0, 0, tzinfo=timezone.utc)}]
         is_coherent = check_spatial_coherence(positions, max_speed=100)
         assert is_coherent is True
 
@@ -329,9 +319,7 @@ class TestGeometricHashServiceExtended:
         min_lat, min_lng = 40.7120, -74.0070
         max_lat, max_lng = 40.7130, -74.0050
 
-        cells = hash_service.get_covering_cells(
-            min_lat, min_lng, max_lat, max_lng, level=10
-        )
+        cells = hash_service.get_covering_cells(min_lat, min_lng, max_lat, max_lng, level=10)
         assert cells is not None
         assert len(cells) > 0
 
@@ -343,9 +331,7 @@ class TestGeometricHashServiceExtended:
         time2 = datetime(2026, 5, 12, 12, 2, 0, tzinfo=timezone.utc)
         time_mid = datetime(2026, 5, 12, 12, 1, 0, tzinfo=timezone.utc)
 
-        interpolated = hash_service.interpolate_position(
-            lat1, lng1, time1, lat2, lng2, time2, time_mid
-        )
+        interpolated = hash_service.interpolate_position(lat1, lng1, time1, lat2, lng2, time2, time_mid)
         assert interpolated is not None
         assert "lat" in interpolated
         assert "lng" in interpolated

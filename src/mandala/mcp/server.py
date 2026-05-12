@@ -270,9 +270,7 @@ async def tool_query_event_log(
             time_range = (datetime.fromisoformat(from_dt), datetime.fromisoformat(to_dt))
 
         events = []
-        async for event in event_log.query(
-            subject=subject, event_type=event_type, time_range=time_range
-        ):
+        async for event in event_log.query(subject=subject, event_type=event_type, time_range=time_range):
             events.append(event.model_dump_json(exclude_none=True, by_alias=True))
             if len(events) >= limit:
                 break
@@ -413,7 +411,14 @@ async def tool_validate_schema(schema_path: str) -> dict[str, Any]:
         schema = await asyncio.to_thread(_load_schema)
 
         # Check required fields
-        required_fields = ["vendor", "canonical_type", "description", "mapping", "example_vendor_payload", "required_fields"]
+        required_fields = [
+            "vendor",
+            "canonical_type",
+            "description",
+            "mapping",
+            "example_vendor_payload",
+            "required_fields",
+        ]
         missing = [f for f in required_fields if f not in schema]
         if missing:
             return {"valid": False, "error": f"Missing required fields: {missing}"}

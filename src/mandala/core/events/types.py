@@ -89,3 +89,7 @@ class EventType(StrEnum):
     PLAYBOOK_TRIGGERED = "mandala.playbook.triggered"
     PLAYBOOK_ACTION_OK = "mandala.playbook.action.ok"
     PLAYBOOK_ACTION_FAILED = "mandala.playbook.action.failed"
+
+
+# Re-export MandalaEvent for backward compatibility with tests
+from mandala.core.events.envelope import MandalaEvent  # noqa: E402

@@ -18,6 +18,77 @@ from mandala.settings import get_settings
 log = structlog.get_logger(__name__)
 
 
+class Alert:
+    """Represents a single alert."""
+
+    def __init__(
+        self,
+        id: str,
+        type: str,
+        severity: str,
+        message: str,
+        entity_id: str | None = None,
+        timestamp: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.id = id
+        self.type = type
+        self.severity = severity
+        self.message = message
+        self.entity_id = entity_id
+        self.timestamp = timestamp or datetime.now(UTC)
+        self.metadata = metadata or {}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "type": self.type,
+            "severity": self.severity,
+            "message": self.message,
+            "entity_id": self.entity_id,
+            "timestamp": self.timestamp.isoformat(),
+            "metadata": self.metadata,
+        }
+
+
+class AlertGroup:
+    """Represents a group of aggregated alerts."""
+
+    def __init__(
+        self,
+        id: str,
+        alert_type: str,
+        entity_id: str | None = None,
+        severity: str = "unknown",
+        alerts: list[Alert] | None = None,
+    ) -> None:
+        self.id = id
+        self.alert_type = alert_type
+        self.entity_id = entity_id
+        self.severity = severity
+        self.alerts = alerts or []
+        self.created_at = datetime.now(UTC)
+
+    def add_alert(self, alert: Alert) -> None:
+        """Add an alert to the group."""
+        self.alerts.append(alert)
+
+    def get_count(self) -> int:
+        """Get the number of alerts in the group."""
+        return len(self.alerts)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "alert_type": self.alert_type,
+            "entity_id": self.entity_id,
+            "severity": self.severity,
+            "count": self.get_count(),
+            "created_at": self.created_at.isoformat(),
+            "alerts": [alert.to_dict() for alert in self.alerts],
+        }
+
+
 class AlertAggregator:
     """Aggregates similar alerts within a time window."""
 
