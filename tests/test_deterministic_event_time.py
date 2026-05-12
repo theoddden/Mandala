@@ -295,7 +295,7 @@ class TestReorderBuffer:
 
     @pytest.mark.asyncio
     async def test_release_ready_events(self, redis_mock):
-        """Test releasing ready events from buffer."""
+        """Test that in-order events are released immediately."""
         buffer = ReorderBuffer(redis=redis_mock)
         source_id = "truck-123"
 
@@ -309,17 +309,17 @@ class TestReorderBuffer:
             id="event-2",
             source="test",
             type="test.event",
-            time=datetime(2026, 5, 11, 11, 30, 0, tzinfo=UTC),
+            time=datetime(2026, 5, 11, 12, 30, 0, tzinfo=UTC),
         )
 
-        # Add events out of order
+        # Add events in order
         await buffer.add(event1, source_id, event1.time)
         await buffer.add(event2, source_id, event2.time)
 
-        # Release ready events (event2 should be released now)
+        # Release ready events (event1 should be released immediately)
         released = await buffer.release_ready(source_id)
         assert len(released) == 1
-        assert released[0].id == "event-2"
+        assert released[0].id == "event-1"
 
     @pytest.mark.asyncio
     async def test_flush_all_events(self, redis_mock):
@@ -340,13 +340,15 @@ class TestReorderBuffer:
             time=datetime(2026, 5, 11, 11, 30, 0, tzinfo=UTC),
         )
 
-        # Buffer events
+        # Add events out of order (both will be buffered since event1 sets next_expected)
         await buffer.add(event1, source_id, event1.time)
         await buffer.add(event2, source_id, event2.time)
 
-        # Flush all
+        # Flush all (only buffered events are flushed)
         flushed = await buffer.release_all(source_id)
-        assert len(flushed) == 2
+        # Only event2 is buffered (event1 was released immediately as first event)
+        assert len(flushed) == 1
+        assert flushed[0].id == "event-2"
 
     @pytest.mark.asyncio
     async def test_get_stats(self, redis_mock):

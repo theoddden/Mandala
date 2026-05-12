@@ -4,8 +4,11 @@ The default implementation uses Apache Iceberg on object storage (S3/GCS/Azure)
 for permanent, immutable event storage. This separates the ephemeral event bus
 (Redis Streams) from the permanent event log (Iceberg).
 
-Iceberg provides:
-- Infinite retention at object storage costs
+Optional feature for long-term event storage and time-travel queries.
+Disabled by default; enable via MANDALA_EVENT_LOG_ENABLED=1.
+
+Benefits:
+- Append-only storage with snapshot isolation
 - Time travel queries for audit/compliance
 - Schema evolution without breaking queries
 - Direct query from Snowflake, DuckDB, Spark, Trino, ClickHouse

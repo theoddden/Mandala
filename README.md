@@ -761,6 +761,122 @@ await PostgresCDC(
 
 These are your scripts. Mandala just needs events in the right format.
 
+## Schema-First Development
+
+Mandala is a neutral event bridge. We don't dictate which vendors you integrate. Instead, we provide a schema-first development layer that lets you integrate **any** vendor without needing actual API credentials.
+
+### The Philosophy
+
+**Mandala is the stator.** You define the mapping from your vendor's data format to Mandala's canonical event schema. We handle projection, detection, alerting, and OTLP export.
+
+This means:
+- No vendor contracts required during development
+- Test your entire pipeline with mock events
+- Define your own vendor schemas
+- Zero changes to Mandala core
+
+### Vendor Schema Definition
+
+Define your vendor integration with a YAML schema file:
+
+```yaml
+# schemas/my-fleet/truck-position.yaml
+
+vendor: my-fleet
+canonical_type: mandala.truck.position.updated
+description: Real-time truck position from custom fleet system
+
+mapping:
+  vehicle_id: logistics.truck.id
+  gps_lat: logistics.location.latlon.latitude
+  gps_lon: logistics.location.latlon.longitude
+  event_timestamp: time
+
+example_vendor_payload: |
+  {
+    "vehicle_id": "TRK-001",
+    "gps_lat": 34.0522,
+    "gps_lon": -118.2437,
+    "event_timestamp": "2026-05-11T20:30:00Z"
+  }
+
+required_fields:
+  - vehicle_id
+  - gps_lat
+  - gps_lon
+  - event_timestamp
+```
+
+See `schemas/SCHEMA_SPECIFICATION.md` for the full schema specification.
+
+### Generate Mock Events
+
+Once you've defined your schema, generate mock events to test your pipeline:
+
+```bash
+python scripts/generate_mock_events.py \
+  --schema schemas/my-fleet/truck-position.yaml \
+  --count 100 \
+  --output mock_events.jsonl
+```
+
+This generates realistic Mandala canonical events following your schema. POST them to Mandala:
+
+```bash
+curl -X POST http://localhost:8000/events \
+  -H "Content-Type: application/json" \
+  --data-binary @mock_events.jsonl
+```
+
+### Validate Schemas and Payloads
+
+Validate your schema structure:
+
+```bash
+python scripts/validate_schema.py --schema schemas/my-fleet/truck-position.yaml
+```
+
+Validate real vendor payloads against your schema:
+
+```bash
+python scripts/validate_schema.py \
+  --schema schemas/my-fleet/truck-position.yaml \
+  --payload real_payload.json
+```
+
+### What This Enables
+
+- **Parallel development**: Build detectors/alerts while another team builds real connectors
+- **CI/CD without external dependencies**: Test event processing in CI without vendor credentials
+- **Faster onboarding**: New developers test Mandala in 5 minutes, not 5 days of vendor setup
+- **Any vendor**: Define a schema for any vendor — Samsara, Descartes, custom systems, anything
+
+### Example Workflow
+
+1. Copy `schemas/templates/custom-vendor-example.yaml` to `schemas/my-vendor/my-event.yaml`
+2. Edit the YAML to map your vendor's fields to `logistics.*` attributes
+3. Generate mock events: `python scripts/generate_mock_events.py --schema schemas/my-vendor/my-event.yaml --count 100`
+4. POST to Mandala: `curl -X POST http://localhost:8000/events --data-binary @mock_events.jsonl`
+5. Test detectors, alerts, views, OTLP export
+6. Build real connector when ready (or keep using mock events for testing)
+
+### Canonical Attributes
+
+Mandala uses the `logistics.*` semantic convention namespace. Common attributes:
+
+| Attribute | Description |
+|---|---|
+| `logistics.truck.id` | Truck identifier |
+| `logistics.location.latlon.latitude` | Latitude coordinate |
+| `logistics.location.latlon.longitude` | Longitude coordinate |
+| `logistics.location.geofence.name` | Geofence name |
+| `logistics.shipment.id` | Shipment identifier |
+| `logistics.carrier.scac` | Carrier SCAC code |
+| `logistics.compliance.hold.type` | Hold type |
+| `time` | Event timestamp |
+
+See `SCHEMA.md` for the full canonical attribute registry.
+
 ## The dbt package
 
 The Mandala worker (or your own pipeline) writes events to a warehouse

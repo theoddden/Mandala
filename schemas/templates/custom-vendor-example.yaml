@@ -1,0 +1,49 @@
+# Example Custom Vendor Schema
+# Copy this template and modify for your specific vendor integration
+
+vendor: my-custom-system
+canonical_type: mandala.truck.position.updated
+description: Real-time truck position from my custom fleet system
+
+# Mapping from your vendor's field names to Mandala canonical attributes
+mapping:
+  # Your field name: Mandala canonical attribute
+  vehicle_id: logistics.truck.id
+  vehicle_name: logistics.truck.name
+  gps_lat: logistics.location.latlon.latitude
+  gps_lon: logistics.location.latlon.longitude
+  heading_deg: logistics.location.heading
+  speed_mph: logistics.location.speed_mph
+  event_timestamp: time
+
+# Example raw payload from your vendor's webhook/API
+example_vendor_payload: |
+  {
+    "vehicle_id": "TRK-001",
+    "vehicle_name": "Truck 42",
+    "gps_lat": 34.0522,
+    "gps_lon": -118.2437,
+    "heading_deg": 270.0,
+    "speed_mph": 55.0,
+    "event_timestamp": "2026-05-11T20:30:00Z"
+  }
+
+# Required fields that must be present in every payload
+required_fields:
+  - vehicle_id
+  - gps_lat
+  - gps_lon
+  - event_timestamp
+
+# Optional fields that may be present
+optional_fields:
+  - vehicle_name
+  - heading_deg
+  - speed_mph
+
+# Validation rules (optional)
+validation:
+  - gps_lat must be between -90 and 90
+  - gps_lon must be between -180 and 180
+  - heading_deg must be between 0 and 360 (if present)
+  - speed_mph must be non-negative (if present)

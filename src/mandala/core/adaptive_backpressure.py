@@ -6,15 +6,22 @@ and CPU load. Rejects ingestion when system is degraded.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
-import psutil
 import structlog
 
 from mandala.settings import get_settings
 
 log = structlog.get_logger(__name__)
+
+# Optional: psutil is only needed if adaptive_backpressure_enabled is set
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    psutil = None  # type: ignore
 
 
 class AdaptiveBackpressure:
