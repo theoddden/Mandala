@@ -70,13 +70,15 @@ class DeadZoneView(MaterializedView):
             parts = member.split(":")
             truck_urn = parts[0] if parts else member
             gap_seconds = float(parts[1]) if len(parts) > 1 else 0
-            out.append({
-                "truck_urn": truck_urn,
-                "distance_mi": round(float(dist), 3),
-                "lon": float(coord[0]),
-                "lat": float(coord[1]),
-                "gap_seconds": gap_seconds,
-            })
+            out.append(
+                {
+                    "truck_urn": truck_urn,
+                    "distance_mi": round(float(dist), 3),
+                    "lon": float(coord[0]),
+                    "lat": float(coord[1]),
+                    "gap_seconds": gap_seconds,
+                }
+            )
         return out
 
     async def health(self) -> dict[str, Any]:
