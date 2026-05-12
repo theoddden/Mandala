@@ -50,7 +50,33 @@ resource "aws_security_group" "redis" {
   }
 }
 
+# Redis HA with Sentinel (optional)
+resource "aws_elasticache_replication_group" "mandala_ha" {
+  count = var.redis_ha_enabled ? 1 : 0
+  
+  replication_group_id          = "${var.name}-redis-ha"
+  replication_group_description = "Mandala Redis cluster with HA"
+  node_type                      = var.redis_node_type
+  number_cache_clusters          = var.redis_num_nodes
+  engine                        = "redis"
+  engine_version                = "7.0"
+  parameter_group_name           = "default.redis7"
+  subnet_group_name             = aws_elasticache_subnet_group.mandala.name
+  security_group_ids            = [aws_security_group.redis.id]
+  automatic_failover_enabled    = true
+  multi_az_enabled              = true
+  at_rest_encryption_enabled    = true
+  transit_encryption_enabled    = true
+  
+  tags = {
+    Name        = "${var.name}-redis-ha"
+    Environment = var.environment
+  }
+}
+
 resource "aws_elasticache_replication_group" "mandala" {
+  count = var.redis_ha_enabled ? 0 : 1
+  
   replication_group_id          = "${var.name}-redis"
   replication_group_description = "Mandala Redis cluster"
   node_type                      = var.redis_node_type
@@ -92,6 +118,80 @@ resource "aws_secretsmanager_secret_version" "vizion" {
   secret_string = var.vizion_api_key
 }
 
+resource "aws_secretsmanager_secret" "samsara_api_token" {
+  count = var.samsara_api_token != "" ? 1 : 0
+  name  = "${var.name}/samsara-api-token"
+}
+
+resource "aws_secretsmanager_secret_version" "samsara_api_token" {
+  count      = var.samsara_api_token != "" ? 1 : 0
+  secret_id  = aws_secretsmanager_secret.samsara_api_token[0].id
+  secret_string = var.samsara_api_token
+}
+
+resource "aws_secretsmanager_secret" "descartes" {
+  count = var.descartes_webhook_secret != "" ? 1 : 0
+  name  = "${var.name}/descartes-webhook-secret"
+}
+
+resource "aws_secretsmanager_secret_version" "descartes" {
+  count      = var.descartes_webhook_secret != "" ? 1 : 0
+  secret_id  = aws_secretsmanager_secret.descartes[0].id
+  secret_string = var.descartes_webhook_secret
+}
+
+resource "aws_secretsmanager_secret" "descartes_api_key" {
+  count = var.descartes_api_key != "" ? 1 : 0
+  name  = "${var.name}/descartes-api-key"
+}
+
+resource "aws_secretsmanager_secret_version" "descartes_api_key" {
+  count      = var.descartes_api_key != "" ? 1 : 0
+  secret_id  = aws_secretsmanager_secret.descartes_api_key[0].id
+  secret_string = var.descartes_api_key
+}
+
+resource "aws_secretsmanager_secret" "cargowise" {
+  count = var.cargowise_webhook_secret != "" ? 1 : 0
+  name  = "${var.name}/cargowise-webhook-secret"
+}
+
+resource "aws_secretsmanager_secret_version" "cargowise" {
+  count      = var.cargowise_webhook_secret != "" ? 1 : 0
+  secret_id  = aws_secretsmanager_secret.cargowise[0].id
+  secret_string = var.cargowise_webhook_secret
+}
+
+resource "aws_secretsmanager_secret" "cargowise_credentials" {
+  count = var.cargowise_webhook_secret != "" ? 1 : 0
+  name  = "${var.name}/cargowise-credentials"
+}
+
+resource "aws_secretsmanager_secret_version" "cargowise_credentials" {
+  count      = var.cargowise_webhook_secret != "" ? 1 : 0
+  secret_id  = aws_secretsmanager_secret.cargowise_credentials[0].id
+  secret_string = jsonencode({
+    eadaptor_url = var.cargowise_eadaptor_url
+    username     = var.cargowise_username
+    password     = var.cargowise_password
+    organization_code = var.cargowise_organization_code
+  })
+}
+
+resource "aws_secretsmanager_secret" "dat" {
+  count = var.dat_client_id != "" ? 1 : 0
+  name  = "${var.name}/dat-credentials"
+}
+
+resource "aws_secretsmanager_secret_version" "dat" {
+  count      = var.dat_client_id != "" ? 1 : 0
+  secret_id  = aws_secretsmanager_secret.dat[0].id
+  secret_string = jsonencode({
+    client_id     = var.dat_client_id
+    client_secret = var.dat_client_secret
+  })
+}
+
 # -----------------------------------------------------------------------------
 # ECS Task Definition
 # -----------------------------------------------------------------------------
@@ -119,19 +219,225 @@ resource "aws_ecs_task_definition" "mandala" {
       environment = [
         {
           name  = "MANDALA_REDIS_URL"
-          value = "redis://${aws_elasticache_replication_group.mandala.primary_endpoint_address}:6379/0"
+          value = "redis://${var.redis_ha_enabled ? aws_elasticache_replication_group.mandala_ha[0].primary_endpoint_address : aws_elasticache_replication_group.mandala[0].primary_endpoint_address}:6379/0"
         },
         {
           name  = "MANDALA_SAMSARA_WEBHOOK_SECRET"
           value = "{{resolve:secretsmanager:${aws_secretsmanager_secret.samsara.name}:SecretString}}"
+        },
+        {
+          name  = "MANDALA_SAMSARA_BASE_URL"
+          value = var.samsara_base_url
+        },
+        {
+          name  = "MANDALA_SAMSARA_OUTBOUND_ENABLED"
+          value = var.samsara_outbound_enabled
+        },
+        {
+          name  = "MANDALA_DESCARTES_BASE_URL"
+          value = var.descartes_base_url
+        },
+        {
+          name  = "MANDALA_CARGOWISE_EADAPTOR_URL"
+          value = var.cargowise_eadaptor_url
+        },
+        {
+          name  = "MANDALA_LOADBOARD_ENABLED"
+          value = var.loadboard_enabled
+        },
+        {
+          name  = "MANDALA_LOADBOARD_POST_DEFAULT_RADIUS_MI"
+          value = var.loadboard_post_default_radius_mi
+        },
+        {
+          name  = "MANDALA_LOADBOARD_POST_TTL_HOURS"
+          value = var.loadboard_post_ttl_hours
+        },
+        {
+          name  = "MANDALA_OTLP_ENDPOINT"
+          value = var.otlp_endpoint
+        },
+        {
+          name  = "MANDALA_EVENT_LOG_ENABLED"
+          value = var.event_log_enabled
+        },
+        {
+          name  = "MANDALA_ICEBERG_CATALOG"
+          value = var.iceberg_catalog
+        },
+        {
+          name  = "MANDALA_ICEBERG_CATALOG_URI"
+          value = var.iceberg_catalog_uri
+        },
+        {
+          name  = "MANDALA_ICEBERG_WAREHOUSE"
+          value = var.iceberg_warehouse
+        },
+        {
+          name  = "MANDALA_ICEBERG_TABLE"
+          value = var.iceberg_table
+        },
+        {
+          name  = "MANDALA_ICEBERG_NAMESPACE"
+          value = var.iceberg_namespace
+        },
+        {
+          name  = "MANDALA_ZK_ENABLED"
+          value = var.zk_enabled
+        },
+        {
+          name  = "MANDALA_ZK_MAX_CONCURRENT_PROOFS"
+          value = var.zk_max_concurrent_proofs
+        },
+        {
+          name  = "MANDALA_ZK_CIRCUIT_PATH"
+          value = var.zk_circuit_path
+        },
+        {
+          name  = "MANDALA_ZK_PROVING_KEY"
+          value = var.zk_proving_key
+        },
+        {
+          name  = "MANDALA_ZK_VERIFICATION_KEY"
+          value = var.zk_verification_key
+        },
+        {
+          name  = "MANDALA_ZK_REMOTE_VERIFIER_ENDPOINT"
+          value = var.zk_remote_verifier_endpoint
+        },
+        {
+          name  = "MANDALA_EVENT_TIME_DETERMINISM_ENABLED"
+          value = var.event_time_determinism_enabled
+        },
+        {
+          name  = "MANDALA_GEOMETRIC_HASH_PROVIDER"
+          value = var.geometric_hash_provider
+        },
+        {
+          name  = "MANDALA_GEOMETRIC_HASH_RESOLUTION"
+          value = var.geometric_hash_resolution
+        },
+        {
+          name  = "MANDALA_STATOR_LATCH_ENABLED"
+          value = var.stator_latch_enabled
+        },
+        {
+          name  = "MANDALA_STATOR_LATCH_TTL_SECONDS"
+          value = var.stator_latch_ttl_seconds
+        },
+        {
+          name  = "MANDALA_STATOR_LATCH_TOLERANCE_SECONDS"
+          value = var.stator_latch_tolerance_seconds
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_ENABLED"
+          value = var.reorder_buffer_enabled
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_MAX_EVENTS_PER_ENTITY"
+          value = var.reorder_buffer_max_events_per_entity
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_MAX_WAIT_SECONDS"
+          value = var.reorder_buffer_max_wait_seconds
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_EXPIRE_SECONDS"
+          value = var.reorder_buffer_expire_seconds
+        },
+        {
+          name  = "MANDALA_SPATIAL_COHERENCE_ENABLED"
+          value = var.spatial_coherence_enabled
+        },
+        {
+          name  = "MANDALA_MAX_VELOCITY_MPS"
+          value = var.max_velocity_mps
+        },
+        {
+          name  = "MANDALA_STREAM_BATCH_SIZE"
+          value = var.stream_batch_size
+        },
+        {
+          name  = "MANDALA_STREAM_BLOCK_MS"
+          value = var.stream_block_ms
+        },
+        {
+          name  = "MANDALA_MAX_CONCURRENT_EVENTS"
+          value = var.max_concurrent_events
+        },
+        {
+          name  = "MANDALA_STREAM_MAXLEN"
+          value = var.stream_maxlen
+        },
+        {
+          name  = "MANDALA_BACKPRESSURE_ENABLED"
+          value = var.backpressure_enabled
+        },
+        {
+          name  = "MANDALA_BACKPRESSURE_THRESHOLD"
+          value = var.backpressure_threshold
+        },
+        {
+          name  = "MANDALA_BACKPRESSURE_RESPONSE_CODE"
+          value = var.backpressure_response_code
+        },
+        {
+          name  = "MANDALA_RATE_LIMIT_ENABLED"
+          value = var.rate_limit_enabled
+        },
+        {
+          name  = "MANDALA_RATE_LIMIT_REQUESTS_PER_MINUTE"
+          value = var.rate_limit_requests_per_minute
+        },
+        {
+          name  = "MANDALA_RATE_LIMIT_BURST_SIZE"
+          value = var.rate_limit_burst_size
+        },
+        {
+          name  = "MANDALA_LOG_LEVEL"
+          value = var.log_level
         }
       ]
-      secrets = var.vizion_api_key != "" ? [
-        {
-          name      = "MANDALA_VIZION_API_KEY"
-          valueFrom = "${aws_secretsmanager_secret.vizion[0].arn}:SecretString"
-        }
-      ] : []
+      secrets = concat(
+        var.vizion_api_key != "" ? [
+          {
+            name      = "MANDALA_VIZION_API_KEY"
+            valueFrom = "${aws_secretsmanager_secret.vizion[0].arn}:SecretString"
+          }
+        ] : [],
+        var.samsara_api_token != "" ? [
+          {
+            name      = "MANDALA_SAMSARA_API_TOKEN"
+            valueFrom = "${aws_secretsmanager_secret.samsara_api_token.arn}:SecretString"
+          }
+        ] : [],
+        var.descartes_webhook_secret != "" ? [
+          {
+            name      = "MANDALA_DESCARTES_WEBHOOK_SECRET"
+            valueFrom = "${aws_secretsmanager_secret.descartes[0].arn}:SecretString"
+          },
+          {
+            name      = "MANDALA_DESCARTES_API_KEY"
+            valueFrom = "${aws_secretsmanager_secret.descartes_api_key[0].arn}:SecretString"
+          }
+        ] : [],
+        var.cargowise_webhook_secret != "" ? [
+          {
+            name      = "MANDALA_CARGOWISE_WEBHOOK_SECRET"
+            valueFrom = "${aws_secretsmanager_secret.cargowise[0].arn}:SecretString"
+          },
+          {
+            name      = "MANDALA_CARGOWISE_CREDENTIALS"
+            valueFrom = "${aws_secretsmanager_secret.cargowise_credentials[0].arn}:SecretString"
+          }
+        ] : [],
+        var.dat_client_id != "" ? [
+          {
+            name      = "MANDALA_DAT_CREDENTIALS"
+            valueFrom = "${aws_secretsmanager_secret.dat[0].arn}:SecretString"
+          }
+        ] : []
+      )
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -149,7 +455,219 @@ resource "aws_ecs_task_definition" "mandala" {
       environment = [
         {
           name  = "MANDALA_REDIS_URL"
-          value = "redis://${aws_elasticache_replication_group.mandala.primary_endpoint_address}:6379/0"
+          value = "redis://${var.redis_ha_enabled ? aws_elasticache_replication_group.mandala_ha[0].primary_endpoint_address : aws_elasticache_replication_group.mandala[0].primary_endpoint_address}:6379/0"
+        },
+        {
+          name  = "MANDALA_SAMSARA_BASE_URL"
+          value = var.samsara_base_url
+        },
+        {
+          name  = "MANDALA_SAMSARA_OUTBOUND_ENABLED"
+          value = var.samsara_outbound_enabled
+        },
+        {
+          name  = "MANDALA_DESCARTES_BASE_URL"
+          value = var.descartes_base_url
+        },
+        {
+          name  = "MANDALA_LOADBOARD_ENABLED"
+          value = var.loadboard_enabled
+        },
+        {
+          name  = "MANDALA_LOADBOARD_POST_DEFAULT_RADIUS_MI"
+          value = var.loadboard_post_default_radius_mi
+        },
+        {
+          name  = "MANDALA_LOADBOARD_POST_TTL_HOURS"
+          value = var.loadboard_post_ttl_hours
+        },
+        {
+          name  = "MANDALA_OTLP_ENDPOINT"
+          value = var.otlp_endpoint
+        },
+        {
+          name  = "MANDALA_EVENT_LOG_ENABLED"
+          value = var.event_log_enabled
+        },
+        {
+          name  = "MANDALA_ICEBERG_CATALOG"
+          value = var.iceberg_catalog
+        },
+        {
+          name  = "MANDALA_ICEBERG_CATALOG_URI"
+          value = var.iceberg_catalog_uri
+        },
+        {
+          name  = "MANDALA_ICEBERG_WAREHOUSE"
+          value = var.iceberg_warehouse
+        },
+        {
+          name  = "MANDALA_ICEBERG_TABLE"
+          value = var.iceberg_table
+        },
+        {
+          name  = "MANDALA_ICEBERG_NAMESPACE"
+          value = var.iceberg_namespace
+        },
+        {
+          name  = "MANDALA_ZK_ENABLED"
+          value = var.zk_enabled
+        },
+        {
+          name  = "MANDALA_ZK_MAX_CONCURRENT_PROOFS"
+          value = var.zk_max_concurrent_proofs
+        },
+        {
+          name  = "MANDALA_ZK_CIRCUIT_PATH"
+          value = var.zk_circuit_path
+        },
+        {
+          name  = "MANDALA_ZK_PROVING_KEY"
+          value = var.zk_proving_key
+        },
+        {
+          name  = "MANDALA_ZK_VERIFICATION_KEY"
+          value = var.zk_verification_key
+        },
+        {
+          name  = "MANDALA_ZK_REMOTE_VERIFIER_ENDPOINT"
+          value = var.zk_remote_verifier_endpoint
+        },
+        {
+          name  = "MANDALA_EVENT_TIME_DETERMINISM_ENABLED"
+          value = var.event_time_determinism_enabled
+        },
+        {
+          name  = "MANDALA_GEOMETRIC_HASH_PROVIDER"
+          value = var.geometric_hash_provider
+        },
+        {
+          name  = "MANDALA_GEOMETRIC_HASH_RESOLUTION"
+          value = var.geometric_hash_resolution
+        },
+        {
+          name  = "MANDALA_STATOR_LATCH_ENABLED"
+          value = var.stator_latch_enabled
+        },
+        {
+          name  = "MANDALA_STATOR_LATCH_TTL_SECONDS"
+          value = var.stator_latch_ttl_seconds
+        },
+        {
+          name  = "MANDALA_STATOR_LATCH_TOLERANCE_SECONDS"
+          value = var.stator_latch_tolerance_seconds
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_ENABLED"
+          value = var.reorder_buffer_enabled
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_MAX_EVENTS_PER_ENTITY"
+          value = var.reorder_buffer_max_events_per_entity
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_MAX_WAIT_SECONDS"
+          value = var.reorder_buffer_max_wait_seconds
+        },
+        {
+          name  = "MANDALA_REORDER_BUFFER_EXPIRE_SECONDS"
+          value = var.reorder_buffer_expire_seconds
+        },
+        {
+          name  = "MANDALA_SPATIAL_COHERENCE_ENABLED"
+          value = var.spatial_coherence_enabled
+        },
+        {
+          name  = "MANDALA_MAX_VELOCITY_MPS"
+          value = var.max_velocity_mps
+        },
+        {
+          name  = "MANDALA_STREAM_BATCH_SIZE"
+          value = var.stream_batch_size
+        },
+        {
+          name  = "MANDALA_STREAM_BLOCK_MS"
+          value = var.stream_block_ms
+        },
+        {
+          name  = "MANDALA_MAX_CONCURRENT_EVENTS"
+          value = var.max_concurrent_events
+        },
+        {
+          name  = "MANDALA_STREAM_MAXLEN"
+          value = var.stream_maxlen
+        },
+        {
+          name  = "MANDALA_BACKPRESSURE_ENABLED"
+          value = var.backpressure_enabled
+        },
+        {
+          name  = "MANDALA_BACKPRESSURE_THRESHOLD"
+          value = var.backpressure_threshold
+        },
+        {
+          name  = "MANDALA_BACKPRESSURE_RESPONSE_CODE"
+          value = var.backpressure_response_code
+        },
+        {
+          name  = "MANDALA_LOG_LEVEL"
+          value = var.log_level
+        }
+      ]
+      secrets = concat(
+        var.samsara_api_token != "" ? [
+          {
+            name      = "MANDALA_SAMSARA_API_TOKEN"
+            valueFrom = "${aws_secretsmanager_secret.samsara_api_token[0].arn}:SecretString"
+          }
+        ] : [],
+        var.vizion_api_key != "" ? [
+          {
+            name      = "MANDALA_VIZION_API_KEY"
+            valueFrom = "${aws_secretsmanager_secret.vizion[0].arn}:SecretString"
+          }
+        ] : [],
+        var.descartes_webhook_secret != "" ? [
+          {
+            name      = "MANDALA_DESCARTES_API_KEY"
+            valueFrom = "${aws_secretsmanager_secret.descartes_api_key[0].arn}:SecretString"
+          }
+        ] : [],
+        var.cargowise_webhook_secret != "" ? [
+          {
+            name      = "MANDALA_CARGOWISE_CREDENTIALS"
+            valueFrom = "${aws_secretsmanager_secret.cargowise_credentials[0].arn}:SecretString"
+          }
+        ] : [],
+        var.dat_client_id != "" ? [
+          {
+            name      = "MANDALA_DAT_CREDENTIALS"
+            valueFrom = "${aws_secretsmanager_secret.dat[0].arn}:SecretString"
+          }
+        ] : []
+      )
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.mandala.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "worker"
+        }
+      }
+    },
+    {
+      name      = "mandala-views"
+      image     = "${var.container_image}:${var.container_tag}"
+      essential = false
+      command   = ["mandala", "views"]
+      environment = [
+        {
+          name  = "MANDALA_REDIS_URL"
+          value = "redis://${var.redis_ha_enabled ? aws_elasticache_replication_group.mandala_ha[0].primary_endpoint_address : aws_elasticache_replication_group.mandala[0].primary_endpoint_address}:6379/0"
+        },
+        {
+          name  = "MANDALA_LOG_LEVEL"
+          value = var.log_level
         }
       ]
       logConfiguration = {
@@ -157,7 +675,7 @@ resource "aws_ecs_task_definition" "mandala" {
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.mandala.name
           "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "worker"
+          "awslogs-stream-prefix" = "views"
         }
       }
     }
@@ -386,7 +904,7 @@ resource "aws_iam_role_policy" "task" {
         Action = [
           "elasticache:Connect"
         ]
-        Resource = aws_elasticache_replication_group.mandala.arn
+        Resource = var.redis_ha_enabled ? aws_elasticache_replication_group.mandala_ha[0].arn : aws_elasticache_replication_group.mandala[0].arn
       },
       {
         Effect = "Allow"
@@ -395,7 +913,10 @@ resource "aws_iam_role_policy" "task" {
         ]
         Resource = concat(
           [aws_secretsmanager_secret.samsara.arn],
-          var.vizion_api_key != "" ? [aws_secretsmanager_secret.vizion[0].arn] : []
+          var.vizion_api_key != "" ? [aws_secretsmanager_secret.vizion[0].arn] : [],
+          var.samsara_api_token != "" ? [aws_secretsmanager_secret.samsara_api_token[0].arn] : [],
+          var.descartes_webhook_secret != "" ? [aws_secretsmanager_secret.descartes[0].arn, aws_secretsmanager_secret.descartes_api_key[0].arn, aws_secretsmanager_secret.cargowise[0].arn, aws_secretsmanager_secret.cargowise_credentials[0].arn] : [],
+          var.dat_client_id != "" ? [aws_secretsmanager_secret.dat[0].arn] : []
         )
       },
       {
@@ -433,7 +954,7 @@ output "alb_dns_name" {
 
 output "redis_endpoint" {
   description = "Redis cluster endpoint"
-  value       = aws_elasticache_replication_group.mandala.primary_endpoint_address
+  value       = var.redis_ha_enabled ? aws_elasticache_replication_group.mandala_ha[0].primary_endpoint_address : aws_elasticache_replication_group.mandala[0].primary_endpoint_address
 }
 
 output "ecs_cluster_name" {
@@ -444,4 +965,14 @@ output "ecs_cluster_name" {
 output "ecs_service_name" {
   description = "ECS service name"
   value       = aws_ecs_service.mandala.name
+}
+
+output "task_definition_arn" {
+  description = "ECS task definition ARN"
+  value       = aws_ecs_task_definition.mandala.arn
+}
+
+output "cloudwatch_log_group" {
+  description = "CloudWatch log group name"
+  value       = aws_cloudwatch_log_group.mandala.name
 }
