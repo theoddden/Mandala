@@ -401,10 +401,16 @@ async def tool_validate_schema(schema_path: str) -> dict[str, Any]:
         return {"error": f"Schema file not found: {schema_path}"}
 
     try:
+        import asyncio
+
         import yaml
 
-        with open(schema_file) as f:
-            schema = yaml.safe_load(f)
+        # Use asyncio.to_thread to avoid blocking the event loop
+        def _load_schema():
+            with open(schema_file) as f:
+                return yaml.safe_load(f)
+
+        schema = await asyncio.to_thread(_load_schema)
 
         # Check required fields
         required_fields = ["vendor", "canonical_type", "description", "mapping", "example_vendor_payload", "required_fields"]

@@ -30,6 +30,17 @@ from mandala.settings import get_settings
 log = structlog.get_logger(__name__)
 
 
+# S2CellId placeholder for compatibility with tests
+class S2CellId:
+    """Placeholder for S2 cell ID compatibility."""
+
+    def __init__(self, id: str) -> None:
+        self.id = id
+
+    def __str__(self) -> str:
+        return self.id
+
+
 class GeometricHashProvider(str, Enum):
     """Supported geometric hashing providers."""
 
@@ -314,3 +325,76 @@ def generate_geometric_idempotency_key(
         base_key = f"{base_key}:{geo_hash}"
 
     return hashlib.sha256(base_key.encode()).hexdigest()
+
+
+# Standalone functions for test compatibility
+def compute_delta_t_vector(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compute delta-t vectors for a series of positions.
+
+    Args:
+        positions: List of position dicts with lat, lng, time
+
+    Returns:
+        List of delta-t vectors
+    """
+    if len(positions) < 2:
+        return []
+
+    service = GeometricHashService()
+    results = []
+
+    for i in range(1, len(positions)):
+        prev = positions[i - 1]
+        curr = positions[i]
+
+        prev_hash = service.compute_hash(prev["lat"], prev["lng"], prev.get("time"))
+        curr_hash = service.compute_hash(curr["lat"], curr["lng"], curr.get("time"))
+
+        delta_t = service.compute_delta_t_vector(
+            curr_hash,
+            prev_hash,
+            curr.get("time") or datetime.now(UTC),
+            prev.get("time") or datetime.now(UTC),
+        )
+        results.append(delta_t)
+
+    return results
+
+
+def check_spatial_coherence(positions: list[dict[str, Any]], max_speed: float = 150.0) -> bool:
+    """Check if spatial movement is coherent across positions.
+
+    Args:
+        positions: List of position dicts with lat, lng, time
+        max_speed: Maximum plausible velocity in m/s
+
+    Returns:
+        True if spatially coherent, False otherwise
+    """
+    if len(positions) < 2:
+        return True
+
+    service = GeometricHashService()
+
+    for i in range(1, len(positions)):
+        prev = positions[i - 1]
+        curr = positions[i]
+
+        prev_hash = service.compute_hash(prev["lat"], prev["lng"], prev.get("time"))
+        curr_hash = service.compute_hash(curr["lat"], curr["lng"], curr.get("time"))
+
+        delta_t = service.compute_delta_t_vector(
+            curr_hash,
+            prev_hash,
+            curr.get("time") or datetime.now(UTC),
+            prev.get("time") or datetime.now(UTC),
+        )
+
+        if not service.is_spatially_coherent(
+            delta_t.get("delta_t_seconds", 0),
+            delta_t.get("velocity_mps"),
+            max_speed,
+        ):
+            return False
+
+    return True

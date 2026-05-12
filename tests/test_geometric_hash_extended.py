@@ -8,9 +8,9 @@ import pytest
 from mandala.core.geometric_hash import (
     GeometricHashService,
     S2CellId,
+    check_spatial_coherence,
     compute_delta_t_vector,
     generate_geometric_idempotency_key,
-    check_spatial_coherence,
 )
 
 

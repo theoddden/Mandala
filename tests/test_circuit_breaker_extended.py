@@ -1,7 +1,7 @@
 """Extended comprehensive tests for circuit breaker."""
 
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -16,6 +16,7 @@ class TestCircuitBreakerExtended:
     def circuit_breaker(self):
         """Create a CircuitBreaker instance."""
         return CircuitBreaker(
+            name="test_breaker",
             failure_threshold=5,
             recovery_timeout=60,
             half_open_max_calls=3,
@@ -24,6 +25,7 @@ class TestCircuitBreakerExtended:
     def test_circuit_breaker_initialization_custom(self):
         """Test initialization with custom parameters."""
         cb = CircuitBreaker(
+            name="custom_breaker",
             failure_threshold=10,
             recovery_timeout=120,
             half_open_max_calls=5,
@@ -82,7 +84,7 @@ class TestCircuitBreakerExtended:
 
         # Trigger failures
         for _ in range(5):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         assert circuit_breaker.state == CircuitBreakerState.OPEN
@@ -95,7 +97,7 @@ class TestCircuitBreakerExtended:
 
         # Open the circuit
         for _ in range(5):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         # Try to call when open
@@ -112,7 +114,7 @@ class TestCircuitBreakerExtended:
 
         # Open the circuit
         for _ in range(5):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         # Set last failure time to past
@@ -133,7 +135,7 @@ class TestCircuitBreakerExtended:
 
         # Open the circuit
         for _ in range(5):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         # Set last failure time to past to transition to half-open
@@ -162,7 +164,7 @@ class TestCircuitBreakerExtended:
 
         # Open the circuit
         for _ in range(5):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         # Transition to half-open
@@ -172,7 +174,7 @@ class TestCircuitBreakerExtended:
         await circuit_breaker.check_state()
 
         # Fail in half-open
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="Test error"):
             await circuit_breaker.call(fail_func)
 
         assert circuit_breaker.state == CircuitBreakerState.OPEN
@@ -185,7 +187,7 @@ class TestCircuitBreakerExtended:
 
         # Open the circuit
         for _ in range(5):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         assert circuit_breaker.state == CircuitBreakerState.OPEN
@@ -206,7 +208,7 @@ class TestCircuitBreakerExtended:
 
         # Trigger some failures
         for _ in range(3):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         stats = circuit_breaker.get_stats()
@@ -227,7 +229,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_context_manager_failure(self, circuit_breaker):
         """Test using circuit breaker as context manager for failure."""
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="Test error"):
             async with circuit_breaker:
                 raise Exception("Test error")
 
@@ -243,7 +245,7 @@ class TestCircuitBreakerExtended:
 
         # Open the circuit
         for _ in range(5):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         # Try to use context manager when open
@@ -389,7 +391,7 @@ class TestCircuitBreakerExtended:
             await circuit_breaker.call(success_func)
 
         for _ in range(2):
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Test error"):
                 await circuit_breaker.call(fail_func)
 
         metrics = circuit_breaker.get_metrics()
@@ -402,7 +404,7 @@ class TestCircuitBreakerExtended:
     @pytest.mark.asyncio
     async def test_circuit_breaker_with_sliding_window(self):
         """Test circuit breaker with sliding window for failure tracking."""
-        cb = CircuitBreaker(failure_threshold=5, sliding_window_size=10)
+        cb = CircuitBreaker(name="sliding_window_breaker", failure_threshold=5, sliding_window_size=10)
 
         async def fail_func():
             raise Exception("Test error")
@@ -413,7 +415,7 @@ class TestCircuitBreakerExtended:
         # Mix of calls
         for i in range(10):
             if i % 2 == 0:
-                with pytest.raises(Exception):
+                with pytest.raises(Exception, match="Test error"):
                     await cb.call(fail_func)
             else:
                 await cb.call(success_func)

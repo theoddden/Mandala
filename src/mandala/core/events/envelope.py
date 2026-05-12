@@ -257,3 +257,7 @@ def new_event(
         end_time=end_time,
         attributes=attributes or {},
     )
+
+
+# Alias for backward compatibility with tests
+MandalaEnvelope = MandalaEvent

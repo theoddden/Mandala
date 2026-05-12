@@ -77,6 +77,41 @@ class EventBus(Protocol):
     async def ack(self, stream: str, group: str, message_id: str) -> None: ...
 
 
+class EventProcessor:
+    """Processes events from the event bus.
+
+    Can filter by event type and invoke a handler function.
+    """
+
+    def __init__(self, handler: object, filter_types: list[str] | None = None) -> None:
+        """Initialize the event processor.
+
+        Args:
+            handler: Async callable to handle events
+            filter_types: Optional list of event types to filter (if None, processes all)
+        """
+        self._handler = handler
+        self._filter_types = filter_types or []
+
+    async def process(self, event: MandalaEvent) -> bool:
+        """Process an event if it matches the filter.
+
+        Args:
+            event: The event to process
+
+        Returns:
+            True if the event was processed, False if it was filtered out
+        """
+        if self._filter_types and event.type not in self._filter_types:
+            return False
+
+        if self._handler:
+            result = await self._handler(event)
+            return result if result is not None else True
+
+        return True
+
+
 class RedisStreamsBus:
     """Production :class:`EventBus` backed by Redis Streams + consumer groups.
 
