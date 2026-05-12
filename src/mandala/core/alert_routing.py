@@ -7,6 +7,7 @@ channels based on alert type, severity, and routing rules.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -24,11 +25,56 @@ from mandala.settings import get_settings
 log = structlog.get_logger(__name__)
 
 
+@dataclass
+class Route:
+    """Represents a notification route destination."""
+
+    id: str
+    destination: str
+    config: dict[str, Any] = field(default_factory=dict)
+    enabled: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert route to dictionary."""
+        return {
+            "id": self.id,
+            "destination": self.destination,
+            "config": self.config,
+            "enabled": self.enabled,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Route:
+        """Create route from dictionary."""
+        return cls(
+            id=data["id"],
+            destination=data["destination"],
+            config=data.get("config", {}),
+            enabled=data.get("enabled", True),
+        )
+
+
+@dataclass
+class RoutingRule:
+    """Represents a routing rule for alerts."""
+
+    id: str
+    condition: dict[str, Any]
+    route_id: str
+    priority: int = 10
+
+    def matches(self, alert: dict[str, Any]) -> bool:
+        """Check if alert matches this rule's condition."""
+        return all(alert.get(key) == value for key, value in self.condition.items())
+
+
 class AlertRouter:
     """Routes alerts to external notification channels."""
 
-    def __init__(self) -> None:
-        self._http_client: httpx.AsyncClient | None = None
+    def __init__(self, http_client: httpx.AsyncClient | None = None) -> None:
+        self._http_client = http_client
+        self._routes: list[Route] = []
+        self._rules: list[RoutingRule] = []
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._http_client is None:
@@ -39,6 +85,77 @@ class AlertRouter:
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
+
+    async def add_route(self, route: Route) -> None:
+        """Add a route to the router."""
+        self._routes.append(route)
+
+    async def add_rule(self, rule: RoutingRule) -> None:
+        """Add a routing rule to the router."""
+        self._rules.append(rule)
+
+    async def route_alert(self, alert: dict[str, Any]) -> list[dict[str, Any]]:
+        """Route an alert based on rules."""
+        matching_rules = [r for r in self._rules if r.matches(alert)]
+        if not matching_rules:
+            return []
+
+        # Sort by priority (higher priority first)
+        matching_rules.sort(key=lambda r: r.priority, reverse=True)
+
+        results = []
+        for rule in matching_rules:
+            route = next((r for r in self._routes if r.id == rule.route_id and r.enabled), None)
+            if route:
+                results.append({"rule_id": rule.id, "route_id": route.id, "destination": route.destination})
+
+        return results
+
+    async def remove_route(self, route_id: str) -> None:
+        """Remove a route by ID."""
+        self._routes = [r for r in self._routes if r.id != route_id]
+
+    async def remove_rule(self, rule_id: str) -> None:
+        """Remove a routing rule by ID."""
+        self._rules = [r for r in self._rules if r.id != rule_id]
+
+    async def get_routes(self) -> list[Route]:
+        """Get all routes."""
+        return self._routes.copy()
+
+    async def get_rules(self) -> list[RoutingRule]:
+        """Get all routing rules."""
+        return self._rules.copy()
+
+    async def get_statistics(self) -> dict[str, Any]:
+        """Get routing statistics."""
+        return {
+            "total_routes": len(self._routes),
+            "total_rules": len(self._rules),
+            "enabled_routes": sum(1 for r in self._routes if r.enabled),
+        }
+
+    async def batch_route_alerts(self, alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Route multiple alerts in batch."""
+        results = []
+        for alert in alerts:
+            result = await self.route_alert(alert)
+            results.extend(result)
+        return results
+
+    async def enable_route(self, route_id: str) -> None:
+        """Enable a route by ID."""
+        for route in self._routes:
+            if route.id == route_id:
+                route.enabled = True
+                break
+
+    async def disable_route(self, route_id: str) -> None:
+        """Disable a route by ID."""
+        for route in self._routes:
+            if route.id == route_id:
+                route.enabled = False
+                break
 
     async def route(self, event: MandalaEvent) -> None:
         """Route an alert event to configured notification channels in parallel.
