@@ -7,11 +7,15 @@ returns a list of new events to publish. No classes, no DI framework.
   with no linked shipment, or with a customs filing missing/not released.
 * :func:`cold_chain` — re-emits ``COLD_CHAIN_BREACH`` annotated with the
   matching shipment's declared min/max temperature, if known.
+* :func:`dead_zone` — fires when a truck's position pings drop off, indicating
+  a connectivity dead zone. Logs the last known location and gap duration.
 
 Add detectors here; they're cheap.
 """
 
 from __future__ import annotations
+
+from datetime import UTC, datetime
 
 import structlog
 
@@ -24,9 +28,11 @@ log = structlog.get_logger(__name__)
 CROSS_BORDER_NO_FILING = "mandala.alert.cross_border.no_filing"
 CROSS_BORDER_HOLD = "mandala.alert.cross_border.hold"
 COLD_CHAIN_OUT_OF_SPEC = "mandala.alert.cold_chain.out_of_spec"
+DEAD_ZONE_DETECTED = "mandala.connectivity.dead_zone"
 
 _BORDER_TAGS = {"border_poe", "us-mx", "us-ca", "border", "poe"}
 _DEBOUNCE_TTL = 1800  # 30 min per truck per fence
+_DEAD_ZONE_THRESHOLD_MINUTES = 5  # Configurable per fleet
 
 
 async def _debounce(redis: object, key: str, ttl: int = _DEBOUNCE_TTL) -> bool:
@@ -127,4 +133,81 @@ async def cold_chain(event: MandalaEvent, state: StateStore, redis: object) -> l
     ]
 
 
-DETECTORS = (cross_border, cold_chain)
+async def dead_zone(event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
+    """Detect when a truck's position pings drop off (connectivity dead zone).
+
+    Uses the Stator's Latch to track last committed time per entity.
+    When the gap exceeds the threshold, emits a dead zone event with the
+    last known location. This builds an empirically-derived connectivity map.
+    """
+    # Only trigger on position events
+    if event.type != EventType.TRUCK_POSITION.value:
+        return []
+
+    truck_urn = event.subject or ""
+    if not truck_urn:
+        return []
+
+    # Get last committed time from Stator's Latch via Redis
+    latch_key = f"mandala:latch:{truck_urn}"
+    last_committed_raw = await redis.get(latch_key)  # type: ignore[attr-defined]
+
+    if not last_committed_raw:
+        return []  # First event, no baseline
+
+    if isinstance(last_committed_raw, bytes):
+        last_committed_raw = last_committed_raw.decode()
+
+    try:
+        last_committed = datetime.fromisoformat(last_committed_raw)
+    except (ValueError, TypeError):
+        return []
+
+    time_gap = (event.time - last_committed).total_seconds()
+
+    if time_gap < (_DEAD_ZONE_THRESHOLD_MINUTES * 60):
+        return []  # Normal ping interval
+
+    # This is a dead zone - log the last known location
+    data = event.data if isinstance(event.data, dict) else {}
+    position = data.get("position") or {}
+
+    # Debounce to prevent spamming dead zone events for the same location
+    geo_key = f"{position.get('lat'):.4f},{position.get('lon'):.4f}"
+    if not await _debounce(redis, f"deadzone:{truck_urn}:{geo_key}", ttl=3600):
+        return []
+
+    log.info(
+        "dead_zone.detected",
+        truck=truck_urn,
+        gap_seconds=time_gap,
+        last_known_lat=position.get("lat"),
+        last_known_lon=position.get("lon"),
+    )
+
+    # Emit dead zone event with spatial metadata
+    return [
+        new_event(
+            type=DEAD_ZONE_DETECTED,
+            source="mandala/alerts",
+            subject=truck_urn,
+            data={
+                "truck_urn": truck_urn,
+                "last_known_lat": position.get("lat"),
+                "last_known_lon": position.get("lon"),
+                "gap_duration_seconds": time_gap,
+                "gap_start": last_committed.isoformat(),
+                "gap_end": event.time.isoformat(),
+                "severity": "medium" if time_gap < 3600 else "high",
+            },
+            attributes={
+                "logistics.location.lat": position.get("lat"),
+                "logistics.location.lon": position.get("lon"),
+                "connectivity.gap_seconds": time_gap,
+                "connectivity.dead_zone": "true",
+            },
+        )
+    ]
+
+
+DETECTORS = (cross_border, cold_chain, dead_zone)

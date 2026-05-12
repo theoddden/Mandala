@@ -204,6 +204,26 @@ async def tool_get_entity_neighbors(urn: str, depth: int = 2) -> dict[str, Any]:
         await r.aclose()
 
 
+async def tool_get_dead_zones_near(lat: float, lon: float, radius_km: float = 50.0, limit: int = 100) -> dict[str, Any]:
+    """Return dead zones (connectivity gaps) within radius_km of a location."""
+    from mandala.views.geospatial import GeospatialView
+
+    state, r = await _state()
+    try:
+        view = GeospatialView(r)
+        radius_mi = radius_km * 0.621371
+        dead_zones = await view.dead_zones_near(lat=lat, lon=lon, radius_mi=radius_mi, limit=limit)
+        return {
+            "center_lat": lat,
+            "center_lon": lon,
+            "radius_km": radius_km,
+            "count": len(dead_zones),
+            "dead_zones": dead_zones,
+        }
+    finally:
+        await r.aclose()
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     from math import asin, cos, radians, sin, sqrt
 
@@ -336,6 +356,23 @@ def build_server():  # type: ignore[no-untyped-def]
                     "required": ["urn"],
                 },
             ),
+            Tool(
+                name="get_dead_zones_near",
+                description=(
+                    "Return dead zones (connectivity gaps) within radius_km of a location. "
+                    "Dead zones are empirically derived from ping drop-offs."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "lat": {"type": "number"},
+                        "lon": {"type": "number"},
+                        "radius_km": {"type": "number", "default": 50.0},
+                        "limit": {"type": "integer", "default": 100},
+                    },
+                    "required": ["lat", "lon"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -367,6 +404,13 @@ def build_server():  # type: ignore[no-untyped-def]
             result = await tool_get_entity_neighbors(
                 urn=arguments["urn"],
                 depth=int(arguments.get("depth", 2)),
+            )
+        elif name == "get_dead_zones_near":
+            result = await tool_get_dead_zones_near(
+                lat=float(arguments["lat"]),
+                lon=float(arguments["lon"]),
+                radius_km=float(arguments.get("radius_km", 50.0)),
+                limit=int(arguments.get("limit", 100)),
             )
         else:
             raise ValueError(f"unknown tool: {name}")

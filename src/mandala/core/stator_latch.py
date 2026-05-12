@@ -82,6 +82,10 @@ class StatorLatch:
 
         # Statistics
         self._stats = defaultdict(int)
+        
+        # Reverse-tracking latency: time from dead zone end to catch-up
+        self._dead_zone_start: dict[str, datetime] = {}
+        self._catch_up_complete: dict[str, datetime] = {}
 
     def _latch_key(self, source_id: str) -> str:
         """Generate Redis key for a source ID's latch."""
@@ -197,6 +201,10 @@ class StatorLatch:
             self._stats["time_travel"] += 1
             self._stats["time_travel_lag_total"] += lag_seconds
 
+            # Mark dead zone start for reverse-tracking latency
+            if source_id not in self._dead_zone_start:
+                self._dead_zone_start[source_id] = event_time
+
             log.info(
                 "stator_latch.time_travel_detected",
                 source_id=source_id,
@@ -220,6 +228,25 @@ class StatorLatch:
         await self.commit_time(source_id, event_time)
         self._stats["proceed"] += 1
         self._stats["time_delta_total"] += time_diff
+
+        # Check if we're catching up from a dead zone
+        if source_id in self._dead_zone_start:
+            self._catch_up_complete[source_id] = datetime.now(UTC)
+            catch_up_latency = (self._catch_up_complete[source_id] - self._dead_zone_start[source_id]).total_seconds()
+            self._stats["reverse_tracking_latency_total"] += catch_up_latency
+            self._stats["reverse_tracking_events"] += 1
+
+            log.info(
+                "stator_latch.catch_up_complete",
+                source_id=source_id,
+                dead_zone_start=self._dead_zone_start[source_id].isoformat(),
+                catch_up_complete=self._catch_up_complete[source_id].isoformat(),
+                catch_up_latency_seconds=catch_up_latency,
+            )
+
+            # Clean up after catch-up
+            del self._dead_zone_start[source_id]
+            del self._catch_up_complete[source_id]
 
         return LatchResult(
             decision=LatchDecision.PROCEED,
@@ -247,9 +274,15 @@ class StatorLatch:
         self._stats["resets"] += 1
         log.warning("stator_latch.reset", source_id=source_id)
 
-    async def get_stats(self) -> dict[str, int]:
-        """Get latch statistics."""
-        return dict(self._stats)
+    async def get_stats(self) -> dict[str, int | float]:
+        """Get latch statistics including reverse-tracking latency."""
+        stats = dict(self._stats)
+        # Calculate average reverse-tracking latency
+        if self._stats.get("reverse_tracking_events", 0) > 0:
+            stats["reverse_tracking_latency_avg_seconds"] = (
+                self._stats.get("reverse_tracking_latency_total", 0) / self._stats["reverse_tracking_events"]
+            )
+        return stats
 
     async def clear_cache(self) -> None:
         """Clear the local cache (useful for testing or memory pressure)."""
