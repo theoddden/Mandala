@@ -35,9 +35,7 @@ class ChangeTracker:
         self._enabled = enabled
         self._tracked_fields = tracked_fields
 
-    async def track(
-        self, event: MandalaEvent, prior_state: dict[str, Any] | None
-    ) -> dict[str, Any] | None:
+    async def track(self, event: MandalaEvent, prior_state: dict[str, Any] | None) -> dict[str, Any] | None:
         """Compare event with prior state and detect changes.
 
         Args:
@@ -100,9 +98,7 @@ class ChangeTracker:
                 fields.extend(self._get_all_fields(value, path))
         return fields
 
-    def create_change_alert_event(
-        self, event: MandalaEvent, changes: dict[str, Any]
-    ) -> MandalaEvent:
+    def create_change_alert_event(self, event: MandalaEvent, changes: dict[str, Any]) -> MandalaEvent:
         """Create an audit event for state changes.
 
         Args:

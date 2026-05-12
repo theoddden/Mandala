@@ -97,9 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log.info("mandala.audit_access_log_enabled")
 
     if s.data_residency_enabled:
-        app.add_middleware(
-            DataResidencyMiddleware, allowed_regions=s.data_residency_allowed_regions
-        )
+        app.add_middleware(DataResidencyMiddleware, allowed_regions=s.data_residency_allowed_regions)
         log.info("mandala.data_residency_enabled", regions=s.data_residency_allowed_regions)
 
     @app.get("/healthz", tags=["meta"])

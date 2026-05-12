@@ -25,6 +25,8 @@ from mandala.core.adaptive_backpressure import AdaptiveBackpressure
 from mandala.core.alert_aggregation import AlertAggregator
 from mandala.core.alert_routing import AlertRouter
 from mandala.core.bus import RedisStreamsBus
+from mandala.core.compliance.change_tracker import ChangeTracker
+from mandala.core.compliance.pii_detector import PIIDetector
 from mandala.core.dead_letter import DeadLetterQueue
 from mandala.core.detector_sandbox import DetectorSandboxPool
 from mandala.core.events.envelope import MandalaEvent
@@ -50,7 +52,18 @@ from mandala.projection import project
 from mandala.rail import DETECTORS as RAIL_DETECTORS
 from mandala.settings import get_settings
 
-DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETECTORS
+# Compliance detectors (optional, enabled via settings)
+COMPLIANCE_DETECTORS = []
+
+s = get_settings()
+if s.pii_detection_enabled:
+    pii_detector = PIIDetector(enabled=True)
+    COMPLIANCE_DETECTORS.append(pii_detector)
+if s.change_tracking_enabled:
+    change_tracker = ChangeTracker(enabled=True)
+    COMPLIANCE_DETECTORS.append(change_tracker)
+
+DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETECTORS + COMPLIANCE_DETECTORS
 
 log = structlog.get_logger(__name__)
 

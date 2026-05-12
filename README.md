@@ -67,6 +67,9 @@ LLM agents.
   (S3/GCS/Azure) for permanent event logging. Disabled by default.
 - **Zero-Knowledge Proofs.** Privacy-preserving verification for insurance/customs/audits
   using ZK circuits for cold-chain breach proofs.
+- **Compliance features (optional).** PII detection, data residency checks, access logging,
+  and change tracking for GDPR/CCPA/SOC2 compliance. All features are opt-in and
+  lightweight. See [Compliance](#compliance).
 - **Standalone Docker connectors.** Samsara and Descartes connectors can run as
   independent Docker containers without the full Mandala stack.
 - **Focused scope.** Removed EPCIS adapter, IOF SCRO ontology, AIS placeholder, and
@@ -346,6 +349,126 @@ MANDALA_ZK_CIRCUIT_PATH=/opt/mandala/zk/circuits/
 MANDALA_ZK_PROVING_KEY=/opt/mandala/zk/keys/cold_chain_breach.pk
 MANDALA_ZK_VERIFICATION_KEY=/opt/mandala/zk/keys/cold_chain_breach.vk
 ```
+
+## Compliance
+
+Mandala includes optional compliance features for GDPR/CCPA/SOC2 requirements. All features are lightweight, opt-in, and designed to minimize operational impact.
+
+### Immutable Audit Logging
+
+Leverages the existing Apache Iceberg event log for permanent, immutable event storage. When enabled for compliance, Mandala forces dual-write to Iceberg for all events.
+
+**Configuration:**
+
+```bash
+# Enable immutable audit logging (forces Iceberg write)
+MANDALA_AUDIT_LOG_ENABLED=1
+
+# Iceberg configuration (required)
+MANDALA_EVENT_LOG_ENABLED=1
+MANDALA_ICEBERG_CATALOG=rest
+MANDALA_ICEBERG_CATALOG_URI=http://localhost:8181
+MANDALA_ICEBERG_WAREHOUSE=s3://mandala-events/
+MANDALA_ICEBERG_TABLE=mandala.events
+MANDALA_ICEBERG_NAMESPACE=mandala
+```
+
+**Benefits:**
+- Append-only storage with snapshot isolation
+- Time travel queries for audit/compliance
+- Direct query from Snowflake, DuckDB, Spark, Trino, ClickHouse
+- Schema evolution without breaking queries
+
+### Access Logging
+
+Logs all `/events` POST requests to a dedicated Redis stream (`mandala:audit:access`) for audit trail purposes. Separate from the main event stream to avoid pollution.
+
+**Configuration:**
+
+```bash
+MANDALA_AUDIT_ACCESS_LOG_ENABLED=1
+```
+
+**Logged fields:**
+- Timestamp
+- Client IP address
+- Request path
+- Event type (if available)
+- Subject (if available)
+- User agent
+
+**Query access logs:**
+
+```bash
+docker compose exec redis redis-cli XREVRANGE mandala:audit:access + - COUNT 10
+```
+
+### PII Detection
+
+Scans event data for common PII patterns (emails, SSNs, phone numbers, credit cards) and emits alert events when PII is detected. Runs in the detector sandbox with timeout and circuit breaker protection.
+
+**Configuration:**
+
+```bash
+MANDALA_PII_DETECTION_ENABLED=1
+```
+
+**Detected patterns:**
+- Email addresses
+- US SSN format (XXX-XX-XXXX)
+- US phone numbers (XXX-XXX-XXXX)
+- International phone numbers
+- Credit card numbers
+- IP addresses
+
+**Alert event emitted:** `mandala.privacy.pii.detected`
+
+### Data Residency Checks
+
+Rejects events from disallowed geographic regions based on location attributes in the event. Configured via ISO 3166-1 alpha-2 country codes.
+
+**Configuration:**
+
+```bash
+MANDALA_DATA_RESIDENCY_ENABLED=1
+MANDALA_DATA_RESIDENCY_ALLOWED_REGIONS=US,CA,MX  # North America
+```
+
+**Checked locations:**
+- `attributes.logistics.location.country`
+- `data.country`
+- `data.location.country`
+- `data.address.country`
+
+**Response:** Events from disallowed regions receive HTTP 403 Forbidden.
+
+### Change Tracking
+
+Tracks state changes by comparing current event data with prior state from Redis. Emits audit events when significant field changes are detected.
+
+**Configuration:**
+
+```bash
+MANDALA_CHANGE_TRACKING_ENABLED=1
+```
+
+**Audit event emitted:** `mandala.audit.state.changed`
+
+**Tracked changes:**
+- All fields by default
+- Optional field whitelist for targeted tracking
+
+### Compliance Feature Summary
+
+| Feature | Purpose | Impact | Env Var |
+|---|---|---|---|
+| Immutable Audit Logging | Permanent event storage for compliance | Iceberg dual-write | `MANDALA_AUDIT_LOG_ENABLED` |
+| Access Logging | Audit trail of all event ingest | Redis stream write | `MANDALA_AUDIT_ACCESS_LOG_ENABLED` |
+| PII Detection | Scan events for PII patterns | Detector sandbox | `MANDALA_PII_DETECTION_ENABLED` |
+| Data Residency | Reject events from disallowed regions | Middleware check | `MANDALA_DATA_RESIDENCY_ENABLED` |
+| Change Tracking | Track state changes for audit | Detector sandbox | `MANDALA_CHANGE_TRACKING_ENABLED` |
+
+**All compliance features are disabled by default. Enable only what you need.**
 
 ## Standalone Docker Connectors
 
