@@ -50,6 +50,10 @@ sink = [
     # Optional warehouse sink writer; install only if you run the dbt pipeline.
     "boto3>=1.34",
 ]
+rust = [
+    # Rust-accelerated cryptographic and geometric operations
+    "mandala-rust-ext>=0.1.0",
+]
 dev = [
     "ruff>=0.4",
     "pytest>=8.0",

@@ -27,6 +27,13 @@ import structlog
 
 from mandala.settings import get_settings
 
+# Try to import Rust-accelerated implementation
+try:
+    from mandala_rust_ext import h3_hash as rust_h3_hash, h3_hash_time_bound as rust_h3_hash_time_bound
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 log = structlog.get_logger(__name__)
 
 
@@ -117,6 +124,13 @@ class GeometricHashService:
         event_time: datetime | None = None,
     ) -> str:
         """Compute H3 hexagonal hash."""
+        # Use Rust implementation if available
+        if _RUST_EXT_AVAILABLE:
+            if event_time:
+                event_time_ms = int(event_time.timestamp() * 1000)
+                return rust_h3_hash_time_bound(latitude, longitude, self._resolution, event_time_ms)
+            return rust_h3_hash(latitude, longitude, self._resolution)
+
         # Convert lat/lon to H3 cell at resolution
         h3_index = self._h3_lib.latlng_to_cell(latitude, longitude, self._resolution)
         h3_str = self._h3_lib.cell_to_string(h3_index)

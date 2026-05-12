@@ -20,6 +20,13 @@ from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from typing import Literal
 
+# Try to import Rust-accelerated implementation
+try:
+    from mandala_rust_ext import verify_hmac_sha256 as rust_verify_hmac_sha256
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 # Default replay-protection window. Webhook clocks routinely drift several
 # minutes in either direction, so 5 min is the smallest value that doesn't
 # generate false rejections under normal operation.
@@ -43,6 +50,9 @@ def verify_hmac_sha256(
         encoding: ``"hex"`` (Samsara, GitHub) or ``"base64"`` (Stripe-style).
         prefix: Optional prefix on the signature string (e.g. ``"sha256="``).
     """
+    if _RUST_EXT_AVAILABLE:
+        return rust_verify_hmac_sha256(body, received_signature, secret, encoding, prefix)
+
     if not received_signature or not secret:
         return False
     sig = received_signature.strip()

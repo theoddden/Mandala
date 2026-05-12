@@ -1,0 +1,21 @@
+[package]
+name = "mandala-rust-ext"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "mandala_rust_ext"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.20", features = ["extension-module"] }
+sha2 = "0.10"
+hmac = "0.12"
+constant-time_eq = "0.3"
+h3ron = { version = "0.16", optional = true }
+base64 = "0.21"
+hex = "0.4"
+
+[features]
+default = ["h3"]
+h3 = ["dep:h3ron"]

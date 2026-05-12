@@ -51,6 +51,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from mandala.core.events.types import EventType
 
+# Try to import Rust-accelerated implementations
+try:
+    from mandala_rust_ext import (
+        derive_trace_id as rust_derive_trace_id,
+        derive_span_id as rust_derive_span_id,
+        compute_idempotency_key as rust_compute_idempotency_key,
+    )
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 SCHEMA_VERSION = "0.3"
 SPEC_VERSION = "1.0"
 
@@ -63,11 +74,15 @@ def _derive_trace_id(subject: str | None, fallback: str) -> str:
     into a single OpenTelemetry trace without coordination.
     """
     seed = subject if subject else fallback
+    if _RUST_EXT_AVAILABLE:
+        return rust_derive_trace_id(seed)
     return hashlib.sha256(seed.encode()).hexdigest()[:32]
 
 
 def _derive_span_id(event_id: str) -> str:
     """Derive an 8-byte (16 hex char) span_id from the event id."""
+    if _RUST_EXT_AVAILABLE:
+        return rust_derive_span_id(event_id)
     return hashlib.sha256(event_id.encode()).hexdigest()[:16]
 
 
@@ -206,6 +221,9 @@ class MandalaEvent(BaseModel):
 
         # Extract entity_id from subject if available
         entity_id = self.subject if self.subject else ""
+
+        if _RUST_EXT_AVAILABLE:
+            return rust_compute_idempotency_key(vendor, self.type, self.time.isoformat(), entity_id)
 
         # Build key components
         key_components = f"{vendor}:{self.type}:{self.time.isoformat()}:{entity_id}"

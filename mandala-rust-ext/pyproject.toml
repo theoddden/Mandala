@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "mandala-rust-ext"
+version = "0.1.0"
+description = "Rust-accelerated cryptographic and geometric operations for Mandala"
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.maturin]
+features = ["h3"]
