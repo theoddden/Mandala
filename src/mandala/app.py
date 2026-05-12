@@ -18,6 +18,8 @@ from mandala import __version__
 from mandala.core.adaptive_backpressure import AdaptiveBackpressure
 from mandala.core.backpressure import BackpressureMiddleware as SimpleBackpressureMiddleware
 from mandala.core.bus import RedisStreamsBus
+from mandala.core.compliance.access_logger import AccessLogMiddleware
+from mandala.core.compliance.data_residency import DataResidencyMiddleware
 from mandala.core.events.envelope import SCHEMA_VERSION
 from mandala.core.events.idempotency import RedisIdempotencyStore
 from mandala.core.rate_limit import RateLimitMiddleware
@@ -88,6 +90,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Add rate limiting middleware to prevent abuse
     app.add_middleware(RateLimitMiddleware)
+
+    # Add compliance middleware (access logging and data residency)
+    if s.audit_access_log_enabled:
+        app.add_middleware(AccessLogMiddleware, redis_client=app.state.redis, enabled=True)
+        log.info("mandala.audit_access_log_enabled")
+
+    if s.data_residency_enabled:
+        app.add_middleware(
+            DataResidencyMiddleware, allowed_regions=s.data_residency_allowed_regions
+        )
+        log.info("mandala.data_residency_enabled", regions=s.data_residency_allowed_regions)
 
     @app.get("/healthz", tags=["meta"])
     async def healthz() -> dict[str, str]:

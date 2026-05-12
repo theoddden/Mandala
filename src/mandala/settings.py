@@ -223,6 +223,26 @@ class Settings(BaseSettings):
     spatial_coherence_enabled: bool = True
     max_velocity_mps: float = 150.0  # ~335 mph, generous for trucks
 
+    # --- Compliance Features (Business Operations) ---
+    # Immutable audit logging (leverages existing Iceberg event log)
+    audit_log_enabled: bool = False  # Force Iceberg write for compliance
+
+    # Access logging for /events endpoint
+    audit_access_log_enabled: bool = False  # Log all /events POST requests to Redis stream
+
+    # PII detection (optional detector)
+    pii_detection_enabled: bool = False  # Scan events for PII patterns
+
+    # Data residency checks
+    data_residency_enabled: bool = False  # Reject events from disallowed regions
+    data_residency_allowed_regions: list[str] = Field(
+        default_factory=lambda: ["US", "CA", "MX"],  # Default: North America
+        description="ISO 3166-1 alpha-2 country codes",
+    )
+
+    # Change tracking (optional detector)
+    change_tracking_enabled: bool = False  # Track state changes for audit trail
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

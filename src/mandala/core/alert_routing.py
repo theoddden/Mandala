@@ -95,8 +95,8 @@ class AlertRouter:
         self._rules.append(rule)
 
     async def route_alert(
-        self, alert: dict[str, Any], timeout: float | None = None
-    ) -> list[dict[str, Any]]:  # noqa: ASYNC109
+        self, alert: dict[str, Any], timeout: float | None = None  # noqa: ASYNC109
+    ) -> list[dict[str, Any]]:
         """Route an alert based on rules."""
         matching_rules = [r for r in self._rules if r.matches(alert)]
         if not matching_rules:
@@ -116,8 +116,8 @@ class AlertRouter:
         return results
 
     async def _execute_route(
-        self, route: Route, alert: dict[str, Any], timeout: float | None = None
-    ) -> None:  # noqa: ASYNC109
+        self, route: Route, alert: dict[str, Any], timeout: float | None = None  # noqa: ASYNC109
+    ) -> None:
         """Execute a route by making HTTP call to destination."""
         try:
             client = await self._get_client()
