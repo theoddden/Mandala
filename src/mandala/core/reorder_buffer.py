@@ -165,6 +165,12 @@ class ReorderBuffer:
                 # Event is in-order and close enough - release immediately
                 self._next_expected[source_id] = event_time
                 self._stats.total_released += 1
+                
+                # Check if this event fills a gap - release any buffered events that are now ready
+                if source_id in self._buffers and self._buffers[source_id]:
+                    # Release ready events after updating next_expected
+                    await self.release_ready(source_id)
+                
                 return True, event
 
             # Event is out-of-order (older than expected) - buffer it
