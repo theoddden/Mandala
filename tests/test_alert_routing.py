@@ -470,6 +470,7 @@ class TestAlertRouter:
     @pytest.mark.asyncio
     async def test_route_alert_with_timeout(self, router, mock_http_client):
         """Test routing with timeout."""
+
         async def slow_post(*args, **kwargs):
             await asyncio.sleep(2)
             return Mock(status_code=200)
