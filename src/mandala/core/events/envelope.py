@@ -54,9 +54,13 @@ from mandala.core.events.types import EventType
 # Try to import Rust-accelerated implementations
 try:
     from mandala_rust_ext import (
-        derive_trace_id as rust_derive_trace_id,
-        derive_span_id as rust_derive_span_id,
         compute_idempotency_key as rust_compute_idempotency_key,
+    )
+    from mandala_rust_ext import (
+        derive_span_id as rust_derive_span_id,
+    )
+    from mandala_rust_ext import (
+        derive_trace_id as rust_derive_trace_id,
     )
     _RUST_EXT_AVAILABLE = True
 except ImportError:

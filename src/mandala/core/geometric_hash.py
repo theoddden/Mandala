@@ -29,7 +29,8 @@ from mandala.settings import get_settings
 
 # Try to import Rust-accelerated implementation
 try:
-    from mandala_rust_ext import h3_hash as rust_h3_hash, h3_hash_time_bound as rust_h3_hash_time_bound
+    from mandala_rust_ext import h3_hash as rust_h3_hash
+    from mandala_rust_ext import h3_hash_time_bound as rust_h3_hash_time_bound
     _RUST_EXT_AVAILABLE = True
 except ImportError:
     _RUST_EXT_AVAILABLE = False
