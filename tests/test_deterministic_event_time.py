@@ -299,18 +299,7 @@ class TestReorderBuffer:
         buffer = ReorderBuffer(redis=redis_mock)
         source_id = "truck-123"
 
-        # Add an out-of-order event that will be buffered
-        event2 = MandalaEvent(
-            id="event-2",
-            source="test",
-            type="test.event",
-            time=datetime(2026, 5, 11, 12, 0, 30, tzinfo=UTC),
-        )
-
-        # Add event2 first (out of order, will be buffered since it's not the first event)
-        await buffer.add(event2, source_id, event2.time)
-
-        # Now add event1 (in order, will be released immediately and set next_expected)
+        # Add event1 first (will be released immediately and set next_expected)
         event1 = MandalaEvent(
             id="event-1",
             source="test",
@@ -319,10 +308,28 @@ class TestReorderBuffer:
         )
         await buffer.add(event1, source_id, event1.time)
 
-        # Release ready events (event2 should now be released since event1 filled the gap)
+        # Add event3 (out of order, will be buffered since there's a gap)
+        event3 = MandalaEvent(
+            id="event-3",
+            source="test",
+            type="test.event",
+            time=datetime(2026, 5, 11, 12, 1, 0, tzinfo=UTC),  # 1 minute later (triggers gap detection)
+        )
+        await buffer.add(event3, source_id, event3.time)
+
+        # Add event2 (fills the gap, should be released immediately)
+        event2 = MandalaEvent(
+            id="event-2",
+            source="test",
+            type="test.event",
+            time=datetime(2026, 5, 11, 12, 0, 30, tzinfo=UTC),
+        )
+        await buffer.add(event2, source_id, event2.time)
+
+        # Release ready events (event3 should now be released since event2 filled the gap)
         released = await buffer.release_ready(source_id)
         assert len(released) == 1
-        assert released[0].id == "event-2"
+        assert released[0].id == "event-3"
 
     @pytest.mark.asyncio
     async def test_flush_all_events(self, redis_mock):

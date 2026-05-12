@@ -82,7 +82,7 @@ class StatorLatch:
 
         # Statistics
         self._stats = defaultdict(int)
-        
+
         # Reverse-tracking latency: time from dead zone end to catch-up
         self._dead_zone_start: dict[str, datetime] = {}
         self._catch_up_complete: dict[str, datetime] = {}
