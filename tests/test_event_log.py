@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from mandala.core.event_log import EventLog
-from mandala.core.events.envelope import MandalaEvent, MandalaEnvelope
+from mandala.core.events.envelope import MandalaEnvelope, MandalaEvent
 
 
 class TestEventLog:

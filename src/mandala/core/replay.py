@@ -7,7 +7,9 @@ state after fixing detector bugs or projection logic.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 import structlog
@@ -17,6 +19,29 @@ from mandala.core.events.envelope import MandalaEvent
 from mandala.core.state import StateStore
 
 log = structlog.get_logger(__name__)
+
+
+class ReplayStatus(StrEnum):
+    """Status of a replay operation."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class ReplayConfig:
+    """Configuration for event replay."""
+
+    from_dt: datetime
+    to_dt: datetime
+    detector_filter: str | None = None
+    dry_run: bool = False
+    entity_urn: str | None = None
+    stream_name: str = "mandala:events"
+    count: int = 1000
 
 
 class EventReplay:

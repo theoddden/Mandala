@@ -5,8 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from mandala.core.events.envelope import MandalaEnvelope
-from mandala.core.events.types import MandalaEvent
+from mandala.core.events.envelope import MandalaEvent, MandalaEnvelope
 
 
 class TestMandalaEnvelope:
