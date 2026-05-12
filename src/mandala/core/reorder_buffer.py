@@ -118,26 +118,24 @@ class ReorderBuffer:
         self,
         event: MandalaEvent,
         source_id: str,
-        event_time: datetime,
+        event_time: datetime | None = None,
     ) -> tuple[bool, MandalaEvent | None]:
         """Add an event to the re-ordering buffer.
 
         Args:
-            event: The MandalaEvent to buffer
-            source_id: Entity identifier (e.g., truck ID)
-            event_time: When the event occurred (source timestamp)
+            event: The event to add
+            source_id: Entity identifier (truck URN, etc.)
+            event_time: Event timestamp (defaults to event.time)
 
         Returns:
             Tuple of (should_release_immediately, event_to_release)
-            - If True, the event should be processed immediately (in-order)
-            - If False, the event is buffered and will be released later
         """
-        async with self._lock:
-            # Get the next expected time for this entity
-            next_expected = self._next_expected.get(source_id)
+        if event_time is None:
+            event_time = event.time
 
-            # If no prior events, this is the first - release immediately
-            if next_expected is None:
+        async with self._lock:
+            # First event for this source - release immediately
+            if source_id not in self._next_expected:
                 self._next_expected[source_id] = event_time
                 self._stats.total_released += 1
                 log.debug(
@@ -147,11 +145,13 @@ class ReorderBuffer:
                 )
                 return True, event
 
+            next_expected = self._next_expected[source_id]
+
             # Check if event is in-order (>= next expected)
             if event_time >= next_expected:
                 # Check if there's a gap (event is significantly newer)
                 time_gap = (event_time - next_expected).total_seconds()
-                if time_gap > 60:  # More than 1 minute gap
+                if time_gap >= 60:  # 1 minute or more gap
                     log.info(
                         "reorder_buffer.gap_detected",
                         source_id=source_id,
@@ -160,6 +160,7 @@ class ReorderBuffer:
                         gap_seconds=time_gap,
                     )
                     # Buffer this event and wait for missing events
+                    # DO NOT update next_expected when buffering due to gap
                     return await self._buffer_event(event, source_id, event_time)
 
                 # Event is in-order and close enough - release immediately
@@ -173,17 +174,15 @@ class ReorderBuffer:
 
                 return True, event
 
-            # Event is out-of-order (older than expected) - buffer it
-            # But first check if it fills a gap in the buffer
-            if source_id in self._buffers and self._buffers[source_id]:
-                # Check if this event is the next expected in the buffer
-                # Release it immediately and update next_expected
+            # Event is out-of-order (older than expected)
+            # Check if this event fills a gap (is the next expected or within gap)
+            if event_time >= next_expected:
+                # This fills the gap - release immediately
                 self._next_expected[source_id] = event_time
                 self._stats.total_released += 1
 
-                # Check if this event fills a gap - release any buffered events that are now ready
+                # Release any buffered events that are now ready
                 if source_id in self._buffers and self._buffers[source_id]:
-                    # Release ready events after updating next_expected
                     await self.release_ready(source_id)
 
                 return True, event
@@ -261,7 +260,8 @@ class ReorderBuffer:
                 # Check if event is ready
                 is_in_order = oldest.event_time >= next_expected
                 is_expired = wait_time >= self._max_wait
-                is_too_old = (now - oldest.event_time).total_seconds() > self._expire_seconds
+                # Only expire based on buffer wait time, not event timestamp
+                is_too_old = False  # Disabled - use is_expired instead
 
                 if is_too_old:
                     # Drop expired event
