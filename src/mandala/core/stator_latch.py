@@ -32,6 +32,14 @@ from mandala.core.state import StateStore
 
 log = structlog.get_logger(__name__)
 
+# Rust acceleration for Stator's Latch decision logic
+try:
+    from mandala_rust_ext import stator_latch_check as rust_stator_latch_check
+
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 
 class LatchDecision(str, Enum):
     """Decision made by the Stator's Latch."""
@@ -169,37 +177,69 @@ class StatorLatch:
             LatchResult with decision and metadata
         """
         last_committed = await self.get_last_committed_time(source_id)
+        last_committed_str = last_committed.isoformat() if last_committed else None
+        event_time_str = event_time.isoformat()
+
+        # Use Rust for decision logic if available (non-blocking, preserves async architecture)
+        if _RUST_EXT_AVAILABLE:
+            rust_result = rust_stator_latch_check(event_time_str, last_committed_str, tolerance_seconds)
+            decision_str = rust_result.decision
+            reason = rust_result.reason
+            time_diff = rust_result.time_diff_seconds
+            lag_seconds = rust_result.lag_seconds
+        else:
+            # Fallback to Python logic
+            if last_committed is None:
+                decision_str = "proceed"
+                reason = "first_event"
+                time_diff = None
+                lag_seconds = None
+            else:
+                time_diff = abs((event_time - last_committed).total_seconds())
+                if time_diff <= tolerance_seconds:
+                    decision_str = "duplicate"
+                    reason = "duplicate_within_tolerance"
+                    lag_seconds = None
+                elif event_time < last_committed:
+                    decision_str = "backfill"
+                    reason = "event_time_before_last_committed"
+                    lag_seconds = (last_committed - event_time).total_seconds()
+                else:
+                    decision_str = "proceed"
+                    reason = "event_time_after_last_committed"
+                    lag_seconds = None
+
+        # Convert decision string to enum
+        decision = LatchDecision(decision_str)
 
         # No prior events - this is the first event for this entity
         if last_committed is None:
             await self.commit_time(source_id, event_time)
             self._stats["first_events"] += 1
             return LatchResult(
-                decision=LatchDecision.PROCEED,
+                decision=decision,
                 last_committed_time=None,
-                reason="first_event",
+                reason=reason,
                 metadata={"first_event": True},
             )
 
-        # Check for duplicate (same timestamp within tolerance)
-        time_diff = abs((event_time - last_committed).total_seconds())
-        if time_diff <= tolerance_seconds:
+        # Handle duplicate
+        if decision == LatchDecision.DUPLICATE:
             self._stats["duplicates"] += 1
             return LatchResult(
-                decision=LatchDecision.DUPLICATE,
+                decision=decision,
                 last_committed_time=last_committed,
-                reason="duplicate_within_tolerance",
+                reason=reason,
                 metadata={
                     "time_diff_seconds": time_diff,
                     "tolerance_seconds": tolerance_seconds,
                 },
             )
 
-        # Check for time-travel (event is older than last committed)
-        if event_time < last_committed:
-            lag_seconds = (last_committed - event_time).total_seconds()
+        # Handle time-travel (event is older than last committed)
+        if decision == LatchDecision.BACKFILL:
             self._stats["time_travel"] += 1
-            self._stats["time_travel_lag_total"] += lag_seconds
+            self._stats["time_travel_lag_total"] += lag_seconds or 0.0
 
             # Mark dead zone start for reverse-tracking latency
             if source_id not in self._dead_zone_start:
@@ -215,9 +255,9 @@ class StatorLatch:
             )
 
             return LatchResult(
-                decision=LatchDecision.BACKFILL,
+                decision=decision,
                 last_committed_time=last_committed,
-                reason="event_time_before_last_committed",
+                reason=reason,
                 metadata={
                     "lag_seconds": lag_seconds,
                     "geometric_hash": geometric_hash,
@@ -227,7 +267,7 @@ class StatorLatch:
         # Event is in-order - advance the latch
         await self.commit_time(source_id, event_time)
         self._stats["proceed"] += 1
-        self._stats["time_delta_total"] += time_diff
+        self._stats["time_delta_total"] += time_diff or 0.0
 
         # Check if we're catching up from a dead zone
         if source_id in self._dead_zone_start:
@@ -249,9 +289,9 @@ class StatorLatch:
             del self._catch_up_complete[source_id]
 
         return LatchResult(
-            decision=LatchDecision.PROCEED,
+            decision=decision,
             last_committed_time=last_committed,
-            reason="event_time_after_last_committed",
+            reason=reason,
             metadata={
                 "time_delta_seconds": time_diff,
                 "geometric_hash": geometric_hash,

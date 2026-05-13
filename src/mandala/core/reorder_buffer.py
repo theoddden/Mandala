@@ -28,6 +28,15 @@ from mandala.settings import get_settings
 
 log = structlog.get_logger(__name__)
 
+# Rust acceleration for reorder buffer logic
+try:
+    from mandala_rust_ext import reorder_buffer_should_buffer as rust_reorder_buffer_should_buffer
+    from mandala_rust_ext import reorder_buffer_is_ready as rust_reorder_buffer_is_ready
+
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 
 @dataclass(order=True)
 class BufferedEvent:
@@ -146,7 +155,29 @@ class ReorderBuffer:
                 return True, event
 
             next_expected = self._next_expected[source_id]
+            next_expected_str = next_expected.isoformat()
+            event_time_str = event_time.isoformat()
 
+            # Use Rust for buffer decision if available (non-blocking, preserves async architecture)
+            if _RUST_EXT_AVAILABLE:
+                should_buffer, next_expected_update = rust_reorder_buffer_should_buffer(
+                    event_time_str,
+                    next_expected_str,
+                    60.0,  # gap_threshold_seconds
+                )
+                if not should_buffer:
+                    # Release immediately
+                    if next_expected_update:
+                        self._next_expected[source_id] = datetime.fromisoformat(next_expected_update)
+                    else:
+                        self._next_expected[source_id] = event_time
+                    self._stats.total_released += 1
+                    return True, event
+                else:
+                    # Buffer the event
+                    return await self._buffer_event(event, source_id, event_time)
+
+            # Fallback to Python logic
             # Check if event is in-order (>= next expected)
             if event_time >= next_expected:
                 # Check if there's a gap (event is significantly newer)
@@ -233,60 +264,95 @@ class ReorderBuffer:
 
             released = []
             now = datetime.now(UTC)
+            now_str = now.isoformat()
+            next_expected_str = next_expected.isoformat()
 
             while buffer:
                 # Peek at the oldest event
                 oldest = buffer[0]
                 wait_time = (now - oldest.received_at).total_seconds()
+                oldest_event_time_str = oldest.event_time.isoformat()
 
-                # Check if event is ready
-                is_in_order = oldest.event_time >= next_expected
-                is_expired = wait_time >= self._max_wait
-                # Only expire based on buffer wait time, not event timestamp
-                is_too_old = False  # Disabled - use is_expired instead
-
-                if is_too_old:
-                    # Drop expired event
-                    heapq.heappop(buffer)
-                    self._stats.total_expired += 1
-                    log.debug(
-                        "reorder_buffer.expired",
-                        source_id=source_id,
-                        event_time=oldest.event_time,
-                        wait_seconds=wait_time,
+                # Use Rust for ready check if available (non-blocking, preserves async architecture)
+                if _RUST_EXT_AVAILABLE:
+                    is_ready = rust_reorder_buffer_is_ready(
+                        oldest_event_time_str,
+                        next_expected_str,
+                        now_str,
+                        self._max_wait,
                     )
-                    continue
+                    if is_ready:
+                        # Release this event
+                        heapq.heappop(buffer)
+                        released.append(oldest.event)
+                        self._next_expected[source_id] = oldest.event_time
+                        next_expected_str = oldest.event_time.isoformat()
+                        self._stats.total_released += 1
 
-                if is_in_order or is_expired:
-                    # Release this event
-                    heapq.heappop(buffer)
-                    released.append(oldest.event)
-                    self._next_expected[source_id] = oldest.event_time
-                    self._stats.total_released += 1
+                        # Track buffer time for statistics
+                        buffer_time = (now - oldest.received_at).total_seconds() * 1000
+                        self._buffer_times.append(buffer_time)
+                        if len(self._buffer_times) > 1000:
+                            self._buffer_times = self._buffer_times[-500:]
 
-                    # Track buffer time for statistics
-                    buffer_time = (now - oldest.received_at).total_seconds() * 1000
-                    self._buffer_times.append(buffer_time)
-                    if len(self._buffer_times) > 1000:
-                        self._buffer_times = self._buffer_times[-500:]
-
-                    if is_expired and not is_in_order:
-                        log.info(
-                            "reorder_buffer.released_with_gap",
-                            source_id=source_id,
-                            event_time=oldest.event_time,
-                            next_expected=next_expected,
-                            wait_seconds=wait_time,
-                        )
-                    else:
                         log.debug(
                             "reorder_buffer.released",
                             source_id=source_id,
                             event_time=oldest.event_time,
                         )
+                    else:
+                        # Event not ready yet - stop
+                        break
                 else:
-                    # Event not ready yet - stop
-                    break
+                    # Fallback to Python logic
+                    # Check if event is ready
+                    is_in_order = oldest.event_time >= next_expected
+                    is_expired = wait_time >= self._max_wait
+                    # Only expire based on buffer wait time, not event timestamp
+                    is_too_old = False  # Disabled - use is_expired instead
+
+                    if is_too_old:
+                        # Drop expired event
+                        heapq.heappop(buffer)
+                        self._stats.total_expired += 1
+                        log.debug(
+                            "reorder_buffer.expired",
+                            source_id=source_id,
+                            event_time=oldest.event_time,
+                            wait_seconds=wait_time,
+                        )
+                        continue
+
+                    if is_in_order or is_expired:
+                        # Release this event
+                        heapq.heappop(buffer)
+                        released.append(oldest.event)
+                        self._next_expected[source_id] = oldest.event_time
+                        self._stats.total_released += 1
+
+                        # Track buffer time for statistics
+                        buffer_time = (now - oldest.received_at).total_seconds() * 1000
+                        self._buffer_times.append(buffer_time)
+                        if len(self._buffer_times) > 1000:
+                            self._buffer_times = self._buffer_times[-500:]
+
+                        if is_expired and not is_in_order:
+                            log.info(
+                                "reorder_buffer.released_with_gap",
+                                source_id=source_id,
+                                event_time=oldest.event_time,
+                                next_expected=next_expected,
+                                wait_seconds=wait_time,
+                            )
+                        else:
+                            log.debug(
+                                "reorder_buffer.released",
+                                source_id=source_id,
+                                event_time=oldest.event_time,
+                            )
+                    else:
+                        # Event not ready yet - stop
+                        break
 
             # Update average buffer time
             if self._buffer_times:

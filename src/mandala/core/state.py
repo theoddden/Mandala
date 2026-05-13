@@ -17,6 +17,14 @@ from typing import Any
 
 from mandala.settings import get_settings
 
+# Rust acceleration for state store patch logic
+try:
+    from mandala_rust_ext import state_store_apply_patch as rust_state_store_apply_patch
+
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 
 def _key(*parts: str) -> str:
     return ":".join(("mandala", *parts))
@@ -46,11 +54,22 @@ class StateStore:
     # --- shipments / trucks ----------------------------------------------
     async def upsert(self, kind: str, urn: str, patch: dict[str, Any]) -> None:
         existing = await self._get_json(_key(kind, urn)) or {}
-        for k, v in patch.items():
-            if v is STATE_DELETE:
-                existing.pop(k, None)
-            elif v is not None:
-                existing[k] = v
+
+        # Use Rust for patch logic if available (non-blocking, preserves async architecture)
+        if _RUST_EXT_AVAILABLE:
+            existing_json = json.dumps(existing)
+            patch_json = json.dumps(patch)
+            # Use string sentinel for STATE_DELETE
+            result_json = rust_state_store_apply_patch(existing_json, patch_json, "__STATE_DELETE__")
+            existing = json.loads(result_json)
+        else:
+            # Fallback to Python logic
+            for k, v in patch.items():
+                if v is STATE_DELETE:
+                    existing.pop(k, None)
+                elif v is not None:
+                    existing[k] = v
+
         await self._set_json(_key(kind, urn), existing)
 
     async def get(self, kind: str, urn: str) -> dict[str, Any] | None:

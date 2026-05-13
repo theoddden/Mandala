@@ -1,15 +1,13 @@
-"""Dead letter queue for failed events.
+"""Dead Letter Queue for failed events.
 
-Failed events (detector errors, projection errors, webhook validation errors)
-are written to a separate Redis stream for later inspection and replay.
-
-This prevents data loss and enables debugging of production issues.
-
-Includes exponential backoff retry mechanism for transient failures.
+Provides a persistent queue for events that failed processing, with
+exponential backoff retry mechanisms. Events are stored in Redis Streams
+with configurable retry policies and maximum retry limits.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 from datetime import UTC, datetime
@@ -21,6 +19,14 @@ from mandala.core.events.envelope import MandalaEvent
 from mandala.settings import get_settings
 
 log = structlog.get_logger(__name__)
+
+# Rust acceleration for exponential backoff calculation
+try:
+    from mandala_rust_ext import calculate_backoff as rust_calculate_backoff
+
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
 
 
 class DeadLetterQueue:
@@ -240,6 +246,11 @@ class DeadLetterQueue:
         Returns:
             Delay in seconds with jitter added
         """
+        # Use Rust for backoff calculation if available (non-blocking, preserves async architecture)
+        if _RUST_EXT_AVAILABLE:
+            return rust_calculate_backoff(retry_count, base_delay, max_delay)
+
+        # Fallback to Python logic
         # Exponential backoff: base_delay * 2^retry_count
         delay = min(base_delay * (2**retry_count), max_delay)
         # Add jitter: +/- 20% random variation

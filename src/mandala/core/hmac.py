@@ -1,32 +1,35 @@
 """HMAC verification helpers shared by all webhook receivers.
 
-Constant-time comparison via :func:`hmac.compare_digest` is mandatory.
-Different vendors disagree on encoding (hex vs. base64) and prefix (e.g.
-``sha256=...``) — call this with ``encoding`` and ``prefix`` set to match.
-
-A separate :func:`is_timestamp_fresh` helper is used by every webhook
-receiver to reject replayed payloads outside a configurable window
-(default 300 s). Combined with HMAC verification, this gives standard
-"signed-and-fresh" semantics matching Stripe, GitHub, and Samsara
-recommendations.
+Verifies webhook signatures using HMAC-SHA256 to ensure authenticity
+and prevent replay attacks. Supports multiple encoding formats and
+configurable timestamp freshness checks.
 """
 
 from __future__ import annotations
 
 import base64
-import hmac
+import hashlib
+import hmac as py_hmac
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from hashlib import sha256
 from typing import Literal
 
-# Try to import Rust-accelerated implementation
+# Rust acceleration for HMAC verification
 try:
     from mandala_rust_ext import verify_hmac_sha256 as rust_verify_hmac_sha256
 
     _RUST_EXT_AVAILABLE = True
 except ImportError:
     _RUST_EXT_AVAILABLE = False
+
+# Rust acceleration for timestamp parsing
+try:
+    from mandala_rust_ext import parse_timestamp as rust_parse_timestamp
+    from mandala_rust_ext import is_timestamp_fresh as rust_is_timestamp_fresh
+
+    _RUST_TIMESTAMP_AVAILABLE = True
+except ImportError:
+    _RUST_TIMESTAMP_AVAILABLE = False
 
 # Default replay-protection window. Webhook clocks routinely drift several
 # minutes in either direction, so 5 min is the smallest value that doesn't
@@ -84,6 +87,14 @@ def is_timestamp_fresh(
     """
     if not timestamp_header:
         return False
+
+    # Use Rust for timestamp freshness check if available (non-blocking, preserves async architecture)
+    if _RUST_TIMESTAMP_AVAILABLE:
+        current = now or datetime.now(UTC)
+        current_time = current.timestamp()
+        return rust_is_timestamp_fresh(timestamp_header.strip(), tolerance_sec, current_time)
+
+    # Fallback to Python logic
     parsed = _parse_timestamp(timestamp_header.strip())
     if parsed is None:
         return False
@@ -95,6 +106,13 @@ def is_timestamp_fresh(
 
 
 def _parse_timestamp(value: str) -> datetime | None:
+    # Use Rust for timestamp parsing if available (non-blocking, preserves async architecture)
+    if _RUST_TIMESTAMP_AVAILABLE:
+        result = rust_parse_timestamp(value)
+        if result:
+            return datetime.fromisoformat(result)
+
+    # Fallback to Python logic
     # Try epoch seconds (and milliseconds) first — cheapest path.
     try:
         epoch = float(value)

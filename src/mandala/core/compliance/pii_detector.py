@@ -16,6 +16,14 @@ from mandala.core.events.envelope import MandalaEvent
 
 log = structlog.get_logger(__name__)
 
+# Rust acceleration for PII detection
+try:
+    from mandala_rust_ext import pii_detect as rust_pii_detect
+
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 
 # Common PII patterns (lightweight regex-based detection)
 PII_PATTERNS = {
@@ -56,8 +64,27 @@ class PIIDetector:
         if not self._enabled:
             return None
 
-        detected = {}
         event_dict = event.model_dump(exclude_none=True)
+        event_json = __import__("json").dumps(event_dict)
+
+        # Use Rust for PII detection if available (non-blocking, preserves async architecture)
+        if _RUST_EXT_AVAILABLE:
+            rust_result = rust_pii_detect(event_json)
+            if rust_result.detected:
+                detected = {}
+                for pii_type in rust_result.pii_types:
+                    detected[pii_type] = rust_result.field_paths
+                log.info(
+                    "pii.detected",
+                    event_id=event.id,
+                    event_type=event.type,
+                    pii_types=list(detected.keys()),
+                )
+                return detected
+            return None
+
+        # Fallback to Python logic
+        detected = {}
 
         # Recursively scan all string values in the event
         def scan_dict(obj: Any, path: str = "") -> None:

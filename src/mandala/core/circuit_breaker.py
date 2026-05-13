@@ -31,6 +31,14 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
+# Rust acceleration for Circuit Breaker state machine logic
+try:
+    from mandala_rust_ext import CircuitBreaker as RustCircuitBreaker
+
+    _RUST_EXT_AVAILABLE = True
+except ImportError:
+    _RUST_EXT_AVAILABLE = False
+
 
 class CircuitState(Enum):
     """Circuit breaker states."""
@@ -76,30 +84,61 @@ class CircuitBreaker:
             success_threshold=success_threshold,
             half_open_max_calls=half_open_max_calls,
         )
-        self._state = CircuitState.CLOSED
-        self._failure_count = 0
-        self._success_count = 0
-        self._last_failure_time: float | None = None
         self._lock = asyncio.Lock()
+
+        # Use Rust state machine if available (non-blocking, preserves async architecture)
+        if _RUST_EXT_AVAILABLE:
+            self._rust_breaker = RustCircuitBreaker(
+                name=name,
+                failure_threshold=failure_threshold,
+                recovery_timeout=recovery_timeout,
+                success_threshold=success_threshold,
+            )
+        else:
+            self._rust_breaker = None
+            # Fallback to Python state
+            self._state = CircuitState.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time: float | None = None
 
     async def __aenter__(self) -> CircuitBreaker:
         """Enter context manager - check circuit state."""
         async with self._lock:
-            if self._state == CircuitState.OPEN:
-                # Check if recovery timeout has elapsed
-                if self._last_failure_time and time.time() - self._last_failure_time > self._config.recovery_timeout:
-                    self._state = CircuitState.HALF_OPEN
-                    self._success_count = 0
+            current_time = time.time()
+
+            if self._rust_breaker:
+                # Use Rust state machine logic (non-blocking)
+                can_proceed = self._rust_breaker.check_state(current_time)
+                if not can_proceed:
+                    raise CircuitBreakerOpenError(
+                        f"Circuit breaker '{self._config.name}' is OPEN. "
+                        f"Rejecting request to prevent cascading failure."
+                    )
+                state_name = self._rust_breaker.get_state_name()
+                if state_name == "half_open":
                     log.info(
                         "circuit_breaker.half_open",
                         name=self._config.name,
                         recovery_timeout=self._config.recovery_timeout,
                     )
-                else:
-                    raise CircuitBreakerOpenError(
-                        f"Circuit breaker '{self._config.name}' is OPEN. "
-                        f"Rejecting request to prevent cascading failure."
-                    )
+            else:
+                # Fallback to Python logic
+                if self._state == CircuitState.OPEN:
+                    # Check if recovery timeout has elapsed
+                    if self._last_failure_time and current_time - self._last_failure_time > self._config.recovery_timeout:
+                        self._state = CircuitState.HALF_OPEN
+                        self._success_count = 0
+                        log.info(
+                            "circuit_breaker.half_open",
+                            name=self._config.name,
+                            recovery_timeout=self._config.recovery_timeout,
+                        )
+                    else:
+                        raise CircuitBreakerOpenError(
+                            f"Circuit breaker '{self._config.name}' is OPEN. "
+                            f"Rejecting request to prevent cascading failure."
+                        )
         return self
 
     async def __aexit__(
@@ -110,59 +149,105 @@ class CircuitBreaker:
     ) -> None:
         """Exit context manager - record success or failure."""
         async with self._lock:
+            current_time = time.time()
+
             if exc_type is not None and issubclass(exc_type, self._config.expected_exception):
                 # Failure occurred
-                self._failure_count += 1
-                self._last_failure_time = time.time()
-                self._success_count = 0
-
-                if self._failure_count >= self._config.failure_threshold:
-                    self._state = CircuitState.OPEN
-                    log.warning(
-                        "circuit_breaker.opened",
-                        name=self._config.name,
-                        failure_count=self._failure_count,
-                        threshold=self._config.failure_threshold,
-                    )
+                if self._rust_breaker:
+                    self._rust_breaker.record_failure(current_time)
+                    state_name = self._rust_breaker.get_state_name()
+                    if state_name == "open":
+                        log.warning(
+                            "circuit_breaker.opened",
+                            name=self._config.name,
+                        )
+                    else:
+                        log.warning(
+                            "circuit_breaker.failure",
+                            name=self._config.name,
+                        )
                 else:
-                    log.warning(
-                        "circuit_breaker.failure",
-                        name=self._config.name,
-                        failure_count=self._failure_count,
-                        threshold=self._config.failure_threshold,
-                    )
+                    # Fallback to Python logic
+                    self._failure_count += 1
+                    self._last_failure_time = current_time
+                    self._success_count = 0
+
+                    if self._failure_count >= self._config.failure_threshold:
+                        self._state = CircuitState.OPEN
+                        log.warning(
+                            "circuit_breaker.opened",
+                            name=self._config.name,
+                            failure_count=self._failure_count,
+                            threshold=self._config.failure_threshold,
+                        )
+                    else:
+                        log.warning(
+                            "circuit_breaker.failure",
+                            name=self._config.name,
+                            failure_count=self._failure_count,
+                            threshold=self._config.failure_threshold,
+                        )
             else:
                 # Success occurred
-                self._failure_count = 0
-                self._success_count += 1
-
-                if self._state == CircuitState.HALF_OPEN:
-                    if self._success_count >= self._config.success_threshold:
-                        self._state = CircuitState.CLOSED
+                if self._rust_breaker:
+                    self._rust_breaker.record_success()
+                    state_name = self._rust_breaker.get_state_name()
+                    if state_name == "closed":
                         log.info(
                             "circuit_breaker.closed",
                             name=self._config.name,
-                            success_count=self._success_count,
                         )
-                    else:
+                    elif state_name == "half_open":
                         log.info(
                             "circuit_breaker.half_open_success",
                             name=self._config.name,
-                            success_count=self._success_count,
-                            threshold=self._config.success_threshold,
                         )
+                else:
+                    # Fallback to Python logic
+                    self._failure_count = 0
+                    self._success_count += 1
+
+                    if self._state == CircuitState.HALF_OPEN:
+                        if self._success_count >= self._config.success_threshold:
+                            self._state = CircuitState.CLOSED
+                            log.info(
+                                "circuit_breaker.closed",
+                                name=self._config.name,
+                                success_count=self._success_count,
+                            )
+                        else:
+                            log.info(
+                                "circuit_breaker.half_open_success",
+                                name=self._config.name,
+                                success_count=self._success_count,
+                                threshold=self._config.success_threshold,
+                            )
 
     def get_state(self) -> CircuitState:
         """Get current circuit state (thread-safe read)."""
+        if self._rust_breaker:
+            state_name = self._rust_breaker.get_state_name()
+            state_map = {"closed": CircuitState.CLOSED, "open": CircuitState.OPEN, "half_open": CircuitState.HALF_OPEN}
+            return state_map.get(state_name, CircuitState.CLOSED)
         return self._state
 
     @property
     def state(self) -> CircuitState:
         """Property for backward compatibility with tests."""
-        return self._state
+        return self.get_state()
 
     def get_stats(self) -> dict[str, Any]:
         """Get circuit breaker statistics."""
+        if self._rust_breaker:
+            return {
+                "name": self._config.name,
+                "state": self._rust_breaker.get_state_name(),
+                "failure_count": self._rust_breaker.failure_count,
+                "success_count": self._rust_breaker.success_count,
+                "last_failure_time": self._rust_breaker.last_failure_time,
+                "failure_threshold": self._config.failure_threshold,
+                "recovery_timeout": self._config.recovery_timeout,
+            }
         return {
             "name": self._config.name,
             "state": self._state.name,
@@ -260,10 +345,13 @@ class CircuitBreaker:
     async def reset(self) -> None:
         """Manually reset the circuit breaker to CLOSED state."""
         async with self._lock:
-            self._state = CircuitState.CLOSED
-            self._failure_count = 0
-            self._success_count = 0
-            self._last_failure_time = None
+            if self._rust_breaker:
+                self._rust_breaker.reset()
+            else:
+                self._state = CircuitState.CLOSED
+                self._failure_count = 0
+                self._success_count = 0
+                self._last_failure_time = None
             log.info("circuit_breaker.reset", name=self._config.name)
 
 
