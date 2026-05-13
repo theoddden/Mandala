@@ -16,8 +16,8 @@ log = structlog.get_logger(__name__)
 
 # Rust acceleration for data residency checks
 try:
-    from mandala_rust_ext import data_residency_extract_country as rust_data_residency_extract_country
     from mandala_rust_ext import data_residency_check as rust_data_residency_check
+    from mandala_rust_ext import data_residency_extract_country as rust_data_residency_extract_country
 
     _RUST_EXT_AVAILABLE = True
 except ImportError:

@@ -30,8 +30,8 @@ log = structlog.get_logger(__name__)
 
 # Rust acceleration for reorder buffer logic
 try:
-    from mandala_rust_ext import reorder_buffer_should_buffer as rust_reorder_buffer_should_buffer
     from mandala_rust_ext import reorder_buffer_is_ready as rust_reorder_buffer_is_ready
+    from mandala_rust_ext import reorder_buffer_should_buffer as rust_reorder_buffer_should_buffer
 
     _RUST_EXT_AVAILABLE = True
 except ImportError:

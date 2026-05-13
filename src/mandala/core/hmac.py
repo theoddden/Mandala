@@ -24,8 +24,8 @@ except ImportError:
 
 # Rust acceleration for timestamp parsing
 try:
-    from mandala_rust_ext import parse_timestamp as rust_parse_timestamp
     from mandala_rust_ext import is_timestamp_fresh as rust_is_timestamp_fresh
+    from mandala_rust_ext import parse_timestamp as rust_parse_timestamp
 
     _RUST_TIMESTAMP_AVAILABLE = True
 except ImportError:
@@ -63,9 +63,9 @@ def verify_hmac_sha256(
     if prefix and sig.startswith(prefix):
         sig = sig[len(prefix) :]
 
-    digest = hmac.new(secret.encode("utf-8"), body, sha256).digest()
+    digest = py_hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
     expected = digest.hex() if encoding == "hex" else base64.b64encode(digest).decode("ascii")
-    return hmac.compare_digest(expected, sig)
+    return py_hmac.compare_digest(expected, sig)
 
 
 def is_timestamp_fresh(
