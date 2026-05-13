@@ -391,6 +391,14 @@ async def tool_get_shipment_via_trailer(trailer_id: str) -> dict[str, Any]:
         await r.aclose()
 
 
+def _decode_graph_result(raw: list[tuple[list[str], list[str]]]) -> list[dict[str, Any]]:
+    """Decode RedisGraph/FalkorDB query result into list of dicts."""
+    if not raw:
+        return []
+    headers, *rows = raw
+    return [dict(zip(headers[0], row)) for row in rows]
+
+
 async def tool_health_check() -> dict[str, Any]:
     """Return health status of Mandala components (Redis, stream, event log)."""
     from mandala.core.event_log import get_event_log

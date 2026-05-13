@@ -93,8 +93,13 @@ class EventType(StrEnum):
     PLAYBOOK_ACTION_OK = "mandala.playbook.action.ok"
     PLAYBOOK_ACTION_FAILED = "mandala.playbook.action.failed"
 
-    # --- Trailer entity (Laredo drayage swap) ---------------------------
+    # --- Laredo cross-border features ------------------------------------
+    # Customs hold vector stall alert
+    ALERT_CUSTOMS_HOLD_VECTOR_STALL = "mandala.alert.customs_hold.vector_stall"
+    # Drayage swap: truck pickup/drop events
+    TRUCK_PICKUP = "mandala.truck.pickup"
+    TRUCK_DROP = "mandala.truck.drop"
+    # Drayage swap: trailer entity and handoff events
+    TRAILER_HANDOFF = "mandala.trailer.handoff.confirmed"
     TRAILER_CREATED = "mandala.trailer.created"
     TRAILER_LOCATION_UPDATED = "mandala.trailer.location.updated"
-    PLAYBOOK_ACTION_OK = "mandala.playbook.action.ok"
-    PLAYBOOK_ACTION_FAILED = "mandala.playbook.action.failed"
