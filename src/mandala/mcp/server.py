@@ -362,6 +362,108 @@ async def tool_get_connector_status() -> dict[str, Any]:
     }
 
 
+async def tool_get_bridge_capabilities() -> dict[str, Any]:
+    """Return self-describing bridge metadata: active connectors, event schemas, and mappings."""
+    from mandala.core.events.types import EventType
+
+    settings = get_settings()
+
+    # Connector-specific event type mappings (from connector normalize() functions)
+    connector_event_types = {
+        "samsara": {
+            "supported_event_types": [
+                "mandala.truck.position",
+                "mandala.truck.geofence.entered",
+                "mandala.truck.geofence.exited",
+                "mandala.truck.poe.entered",
+                "mandala.truck.poe.exited",
+                "mandala.cold_chain.reading",
+                "mandala.cold_chain.breach",
+                "mandala.driver.hos.warning",
+                "mandala.driver.log.violation",
+                "mandala.truck.harsh_event",
+            ],
+            "vendor_payload_mapping": {
+                "VehicleLocation": "mandala.truck.position",
+                "VehicleGpsUpdated": "mandala.truck.position",
+                "VehicleGpsUpdate": "mandala.truck.position",
+                "VehicleEnterGeofence": "mandala.truck.geofence.entered",
+                "GeofenceEntry": "mandala.truck.geofence.entered",
+                "VehicleExitGeofence": "mandala.truck.geofence.exited",
+                "GeofenceExit": "mandala.truck.geofence.exited",
+                "VehicleTemperature": "mandala.cold_chain.reading",
+                "TemperatureSensorReading": "mandala.cold_chain.reading",
+                "TemperatureExceeded": "mandala.cold_chain.breach",
+                "EldHosViolation": "mandala.driver.log.violation",
+                "HosViolationDetected": "mandala.driver.log.violation",
+                "HarshEvent": "mandala.truck.harsh_event",
+                "VehicleHarshEvent": "mandala.truck.harsh_event",
+            },
+        },
+        "descartes": {
+            "supported_event_types": [
+                "mandala.shipment.booked",
+                "mandala.shipment.dispatched",
+                "mandala.shipment.picked_up",
+                "mandala.shipment.in_transit",
+                "mandala.shipment.at_border",
+                "mandala.shipment.delivered",
+                "mandala.shipment.cancelled",
+                "mandala.shipment.customs.hold.landed",
+                "mandala.shipment.customs.hold.cleared",
+                "mandala.shipment.customs.documentation.missing",
+                "mandala.shipment.customs.inspection.required",
+                "mandala.shipment.eta.updated",
+            ],
+            "vendor_payload_mapping": {
+                "TrackingRequest": "mandala.shipment.booked",
+                "StatusUpdate": "mandala.shipment.in_transit",
+                "LocationUpdate": "mandala.shipment.in_transit",
+            },
+        },
+    }
+
+    # Build connector status with event type info
+    connectors = {}
+    for connector_name, event_info in connector_event_types.items():
+        if connector_name == "samsara":
+            connectors[connector_name] = {
+                "active": bool(settings.samsara_webhook_secret),
+                "webhook_configured": bool(settings.samsara_webhook_secret),
+                "outbound_enabled": settings.samsara_outbound_enabled,
+                "api_token_configured": bool(settings.samsara_api_token),
+                **event_info,
+            }
+        elif connector_name == "descartes":
+            connectors[connector_name] = {
+                "active": bool(settings.descartes_webhook_secret),
+                "webhook_configured": bool(settings.descartes_webhook_secret),
+                "api_key_configured": bool(settings.descartes_api_key),
+                **event_info,
+            }
+
+    # Canonical event registry (from EventType enum)
+    canonical_event_registry = {}
+    for event_type in EventType:
+        canonical_event_registry[event_type.value] = {
+            "description": event_type.name.replace("_", " ").lower(),
+        }
+
+    # POE geofence configuration
+    poe_geofences = {
+        "configured": bool(settings.samsara_webhook_secret),  # Only Samsara supports POE geofences currently
+        "active_geofences": list(BORDER_POE_COORDS.keys()),
+    }
+
+    return {
+        "bridge_version": "0.3.0",
+        "schema_version": "0.3",
+        "connectors": connectors,
+        "canonical_event_registry": canonical_event_registry,
+        "poe_geofences": poe_geofences,
+    }
+
+
 async def tool_query_zk_proofs(proof_id: str | None = None, limit: int = 50) -> dict[str, Any]:
     """Query ZK proof status for cold-chain breaches (if ZK is enabled)."""
     settings = get_settings()
@@ -640,6 +742,11 @@ def build_server():  # type: ignore[no-untyped-def]
                 inputSchema={"type": "object", "properties": {}},
             ),
             Tool(
+                name="get_bridge_capabilities",
+                description="Return self-describing bridge metadata: active connectors, event schemas, vendor payload mappings, and POE geofence configuration.",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            Tool(
                 name="query_zk_proofs",
                 description="Query ZK proof status for cold-chain breaches (if ZK is enabled).",
                 inputSchema={
@@ -720,6 +827,8 @@ def build_server():  # type: ignore[no-untyped-def]
             result = await tool_health_check()
         elif name == "get_connector_status":
             result = await tool_get_connector_status()
+        elif name == "get_bridge_capabilities":
+            result = await tool_get_bridge_capabilities()
         elif name == "query_zk_proofs":
             result = await tool_query_zk_proofs(
                 proof_id=arguments.get("proof_id"),
