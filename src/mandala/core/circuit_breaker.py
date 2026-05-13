@@ -126,7 +126,10 @@ class CircuitBreaker:
                 # Fallback to Python logic
                 if self._state == CircuitState.OPEN:
                     # Check if recovery timeout has elapsed
-                    if self._last_failure_time and current_time - self._last_failure_time > self._config.recovery_timeout:
+                    if (
+                        self._last_failure_time
+                        and current_time - self._last_failure_time > self._config.recovery_timeout
+                    ):
                         self._state = CircuitState.HALF_OPEN
                         self._success_count = 0
                         log.info(
