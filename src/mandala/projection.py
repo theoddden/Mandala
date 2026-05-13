@@ -142,12 +142,12 @@ async def project(event: MandalaEvent, state: StateStore) -> None:
                 if k in data and data[k] is not None:
                     patch[k] = data[k]
             await state.upsert("trailer", trailer_urn, patch)
-            
+
             # Link trailer to shipment
             shipment_urn = data.get("shipment_urn")
             if shipment_urn:
                 await state.link(trailer_urn, shipment_urn)
-            
+
             # Link truck to trailer (for handoff chain tracking)
             truck_urn = subject
             if truck_urn and truck_urn.startswith("urn:mandala:truck:"):

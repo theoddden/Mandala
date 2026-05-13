@@ -207,7 +207,7 @@ async def dead_zone(event: MandalaEvent, state: StateStore, redis: object) -> li
 
 async def customs_hold_vector_stall(event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
     """Laredo Vector Stall detector: Fire alert when customs hold lands before driver reaches bridge.
-    
+
     The "Vector Stall" problem: Customs broker knows about the hold hours before the driver
     does. If the driver is still >30 minutes from the bridge, we can reroute them to a
     hold lot instead of wasting hours in the queue.
@@ -218,24 +218,24 @@ async def customs_hold_vector_stall(event: MandalaEvent, state: StateStore, redi
         EventType.CUSTOMS_INSPECTION_REQUIRED.value,
     ):
         return []
-    
+
     data = event.data if isinstance(event.data, dict) else {}
     shipment_urn = event.subject or ""
-    
+
     # Extract Laredo-specific context from Descartes normalization
     eta_to_bridge = data.get("eta_to_bridge_minutes")
     truck_location = data.get("truck_location", "unknown")
     port_of_entry = data.get("port_of_entry", "unknown")
     hold_reason = data.get("hold_reason", "unknown")
-    
+
     # Only alert if driver hasn't reached bridge yet (>30 minutes away)
     if eta_to_bridge is None or eta_to_bridge <= 30:
         return []
-    
+
     # Debounce per shipment to avoid duplicate alerts
     if not await _debounce(redis, f"vectorstall:{shipment_urn}", ttl=3600):
         return []
-    
+
     log.info(
         "customs_hold.vector_stall",
         shipment=shipment_urn,
@@ -244,7 +244,7 @@ async def customs_hold_vector_stall(event: MandalaEvent, state: StateStore, redi
         truck_location=truck_location,
         hold_reason=hold_reason,
     )
-    
+
     return [
         new_event(
             type=EventType.ALERT_CUSTOMS_HOLD_VECTOR_STALL,

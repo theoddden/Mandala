@@ -151,8 +151,7 @@ class GraphView(MaterializedView):
             if truck_urn and trailer_id:
                 # Update temporal edge: set end time
                 await self._query(
-                    "MATCH (t:Truck {urn: $t})-[r:HAULED]->(trl:Trailer {id: $trl}) "
-                    "SET r.end = $end_time",
+                    "MATCH (t:Truck {urn: $t})-[r:HAULED]->(trl:Trailer {id: $trl}) " "SET r.end = $end_time",
                     {"t": truck_urn, "trl": str(trailer_id), "end_time": event.time.isoformat()},
                 )
             return
@@ -163,9 +162,7 @@ class GraphView(MaterializedView):
             shipment_urn = data.get("shipment_urn")
             if trailer_id and shipment_urn:
                 await self._query(
-                    "MERGE (trl:Trailer {id: $trl}) "
-                    "MERGE (s:Shipment {urn: $s}) "
-                    "MERGE (trl)-[:CARRIES]->(s)",
+                    "MERGE (trl:Trailer {id: $trl}) " "MERGE (s:Shipment {urn: $s}) " "MERGE (trl)-[:CARRIES]->(s)",
                     {"trl": str(trailer_id), "s": shipment_urn},
                 )
             return

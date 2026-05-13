@@ -297,7 +297,7 @@ async def tool_inspect_dlq(limit: int = 50) -> dict[str, Any]:
 
 async def tool_get_trailer_handoff_chain(trailer_id: str) -> dict[str, Any]:
     """Return the full handoff chain for a trailer (Mexican → Drayage → US trucks).
-    
+
     Uses the graph view to query temporal HAULED edges, showing which truck
     hauled the trailer at which time. This solves the Laredo "Brokerage Fog"
     problem by linking all three tractors via the constant trailer ID.
@@ -345,7 +345,7 @@ async def tool_get_trailer_handoff_chain(trailer_id: str) -> dict[str, Any]:
 
 async def tool_get_shipment_via_trailer(trailer_id: str) -> dict[str, Any]:
     """Return the shipment currently linked to a trailer.
-    
+
     This is the inverse of the handoff chain query — useful for answering
     "which shipment is this trailer carrying right now?"
     """
@@ -366,6 +366,7 @@ async def tool_get_shipment_via_trailer(trailer_id: str) -> dict[str, Any]:
 
         # Get current truck (if any)
         from mandala.views.graph import GraphView
+
         view = GraphView(r)
         current_truck = None
         if await view._probe():
@@ -568,7 +569,10 @@ async def tool_get_bridge_capabilities() -> dict[str, Any]:
                 "name": "check_customs_status",
                 "description": "Return customs status, authority, broker, and hold reason",
             },
-            {"name": "get_trailer_handoff_chain", "description": "Return full handoff chain for a trailer (Mexican → Drayage → US trucks)"},
+            {
+                "name": "get_trailer_handoff_chain",
+                "description": "Return full handoff chain for a trailer (Mexican → Drayage → US trucks)",
+            },
             {"name": "get_shipment_via_trailer", "description": "Return shipment currently linked to a trailer"},
         ],
         "alerts_monitoring": [
