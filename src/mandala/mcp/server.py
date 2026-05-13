@@ -460,10 +460,16 @@ async def tool_get_bridge_capabilities() -> dict[str, Any]:
         "core_queries": [
             {"name": "get_shipment", "description": "Return canonical Shipment object plus timeline"},
             {"name": "get_truck", "description": "Return last-known truck position, telemetry, and linked shipment"},
-            {"name": "check_customs_status", "description": "Return customs status, authority, broker, and hold reason"},
+            {
+                "name": "check_customs_status",
+                "description": "Return customs status, authority, broker, and hold reason",
+            },
         ],
         "alerts_monitoring": [
-            {"name": "get_recent_alerts", "description": "Return recent Mandala alert events, optionally filtered by severity"},
+            {
+                "name": "get_recent_alerts",
+                "description": "Return recent Mandala alert events, optionally filtered by severity",
+            },
             {"name": "get_cold_chain_breaches", "description": "Return cold-chain breach events across the fleet"},
         ],
         "geospatial_queries": [
@@ -472,12 +478,18 @@ async def tool_get_bridge_capabilities() -> dict[str, Any]:
             {"name": "get_dead_zones_near", "description": "Return dead zones (connectivity gaps) near a location"},
         ],
         "border_operations": [
-            {"name": "get_trucks_at_poe_without_filing", "description": "Return trucks at POE without released customs filing"},
+            {
+                "name": "get_trucks_at_poe_without_filing",
+                "description": "Return trucks at POE without released customs filing",
+            },
             {"name": "get_trucks_at_poe", "description": "Return all trucks currently at a Port-of-Entry"},
         ],
         "materialized_views": [
             {"name": "get_entity_neighbors", "description": "Multi-hop graph traversal from a URN"},
-            {"name": "get_temperature_readings", "description": "Return temperature readings for a specific truck over time"},
+            {
+                "name": "get_temperature_readings",
+                "description": "Return temperature readings for a specific truck over time",
+            },
             {"name": "materialized_views_health", "description": "Return health status of all materialized views"},
         ],
         "external_integrations": [
