@@ -295,6 +295,102 @@ async def tool_inspect_dlq(limit: int = 50) -> dict[str, Any]:
         await r.aclose()
 
 
+async def tool_get_trailer_handoff_chain(trailer_id: str) -> dict[str, Any]:
+    """Return the full handoff chain for a trailer (Mexican → Drayage → US trucks).
+    
+    Uses the graph view to query temporal HAULED edges, showing which truck
+    hauled the trailer at which time. This solves the Laredo "Brokerage Fog"
+    problem by linking all three tractors via the constant trailer ID.
+    """
+    from mandala.views.graph import GraphView
+
+    state, r = await _state()
+    try:
+        view = GraphView(r)
+        if not await view._probe():
+            return {
+                "trailer_id": trailer_id,
+                "error": "Graph view not available (RedisGraph/FalkorDB module not loaded)",
+                "handoff_chain": [],
+            }
+
+        # Query: Get all trucks that have hauled this trailer, ordered by time
+        cypher = """
+        MATCH (t:Truck)-[r:HAULED]->(trl:Trailer {id: $trl})
+        RETURN t.urn AS truck_urn, r.start AS pickup_time, r.end AS drop_time
+        ORDER BY r.start ASC
+        """
+        raw = await view._query(cypher, {"trl": str(trailer_id)})
+        rows = _decode_graph_result(raw)
+
+        # Also get current trailer state
+        trailer_urn = f"urn:mandala:trailer:{trailer_id}"
+        trailer_state = await state.get("trailer", trailer_urn)
+
+        # Get linked shipment
+        shipment_urn = await r.get(f"mandala:link:trailer:{trailer_urn}")
+        if shipment_urn:
+            shipment_urn = shipment_urn.decode() if isinstance(shipment_urn, bytes) else shipment_urn
+
+        return {
+            "trailer_id": trailer_id,
+            "trailer_state": trailer_state,
+            "shipment_urn": shipment_urn,
+            "handoff_chain": rows,
+            "chain_length": len(rows),
+        }
+    finally:
+        await r.aclose()
+
+
+async def tool_get_shipment_via_trailer(trailer_id: str) -> dict[str, Any]:
+    """Return the shipment currently linked to a trailer.
+    
+    This is the inverse of the handoff chain query — useful for answering
+    "which shipment is this trailer carrying right now?"
+    """
+    state, r = await _state()
+    try:
+        trailer_urn = f"urn:mandala:trailer:{trailer_id}"
+        trailer_state = await state.get("trailer", trailer_urn)
+
+        # Get linked shipment
+        shipment_urn_raw = await r.get(f"mandala:link:trailer:{trailer_urn}")
+        shipment_urn = None
+        if shipment_urn_raw:
+            shipment_urn = shipment_urn_raw.decode() if isinstance(shipment_urn_raw, bytes) else shipment_urn_raw
+
+        shipment = None
+        if shipment_urn:
+            shipment = await state.get("shipment", shipment_urn)
+
+        # Get current truck (if any)
+        from mandala.views.graph import GraphView
+        view = GraphView(r)
+        current_truck = None
+        if await view._probe():
+            cypher = """
+            MATCH (t:Truck)-[r:HAULED]->(trl:Trailer {id: $trl})
+            WHERE r.end IS NULL
+            RETURN t.urn AS truck_urn
+            LIMIT 1
+            """
+            raw = await view._query(cypher, {"trl": str(trailer_id)})
+            rows = _decode_graph_result(raw)
+            if rows:
+                current_truck = rows[0].get("truck_urn")
+
+        return {
+            "trailer_id": trailer_id,
+            "trailer_state": trailer_state,
+            "shipment_urn": shipment_urn,
+            "shipment": shipment,
+            "current_truck_urn": current_truck,
+        }
+    finally:
+        await r.aclose()
+
+
 async def tool_health_check() -> dict[str, Any]:
     """Return health status of Mandala components (Redis, stream, event log)."""
     from mandala.core.event_log import get_event_log
@@ -464,6 +560,8 @@ async def tool_get_bridge_capabilities() -> dict[str, Any]:
                 "name": "check_customs_status",
                 "description": "Return customs status, authority, broker, and hold reason",
             },
+            {"name": "get_trailer_handoff_chain", "description": "Return full handoff chain for a trailer (Mexican → Drayage → US trucks)"},
+            {"name": "get_shipment_via_trailer", "description": "Return shipment currently linked to a trailer"},
         ],
         "alerts_monitoring": [
             {
@@ -990,6 +1088,27 @@ def build_server():  # type: ignore[no-untyped-def]
                 },
             ),
             Tool(
+                name="get_trailer_handoff_chain",
+                description=(
+                    "Return the full handoff chain for a trailer (Mexican → Drayage → US trucks). "
+                    "Uses the graph view to query temporal HAULED edges, solving the Laredo 'Brokerage Fog' problem."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {"trailer_id": {"type": "string"}},
+                    "required": ["trailer_id"],
+                },
+            ),
+            Tool(
+                name="get_shipment_via_trailer",
+                description="Return the shipment currently linked to a trailer, plus the current truck hauling it.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"trailer_id": {"type": "string"}},
+                    "required": ["trailer_id"],
+                },
+            ),
+            Tool(
                 name="materialized_views_health",
                 description="Return health status of all materialized views (geospatial, timeseries, bitmap, graph, dead_zones).",
                 inputSchema={"type": "object", "properties": {}},
@@ -1093,6 +1212,10 @@ def build_server():  # type: ignore[no-untyped-def]
                 until_hours=int(arguments.get("until_hours", 0)),
                 limit=int(arguments.get("limit", 1000)),
             )
+        elif name == "get_trailer_handoff_chain":
+            result = await tool_get_trailer_handoff_chain(trailer_id=arguments["trailer_id"])
+        elif name == "get_shipment_via_trailer":
+            result = await tool_get_shipment_via_trailer(trailer_id=arguments["trailer_id"])
         elif name == "materialized_views_health":
             result = await tool_materialized_views_health()
         elif name == "get_rail_status":

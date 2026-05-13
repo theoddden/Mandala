@@ -92,3 +92,9 @@ class EventType(StrEnum):
     PLAYBOOK_TRIGGERED = "mandala.playbook.triggered"
     PLAYBOOK_ACTION_OK = "mandala.playbook.action.ok"
     PLAYBOOK_ACTION_FAILED = "mandala.playbook.action.failed"
+
+    # --- Trailer entity (Laredo drayage swap) ---------------------------
+    TRAILER_CREATED = "mandala.trailer.created"
+    TRAILER_LOCATION_UPDATED = "mandala.trailer.location.updated"
+    PLAYBOOK_ACTION_OK = "mandala.playbook.action.ok"
+    PLAYBOOK_ACTION_FAILED = "mandala.playbook.action.failed"

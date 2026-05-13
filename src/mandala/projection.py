@@ -63,6 +63,17 @@ _TRUCK_POSITION_FIELDS = {
     "equipment_type",
 }
 
+# Laredo Drayage Swap: Trailer entity fields
+_TRAILER_FIELDS = {
+    "trailer_id",
+    "current_location",
+    "first_seen",
+    "last_seen",
+    "equipment_type",
+    "seal_number",
+    "condition",
+}
+
 
 async def project(event: MandalaEvent, state: StateStore) -> None:
     data = event.data if isinstance(event.data, dict) else {}
@@ -116,3 +127,49 @@ async def project(event: MandalaEvent, state: StateStore) -> None:
             if not shipment_urn.startswith("urn:mandala:shipment:"):
                 return
             await state.link(truck_urn, shipment_urn)
+
+    # --- Laredo Drayage Swap: Trailer entity projection --------------------
+    if event.type == EventType.TRUCK_PICKUP.value:
+        trailer_id = data.get("trailer_id")
+        if trailer_id:
+            trailer_urn = f"urn:mandala:trailer:{trailer_id}"
+            # Create/update trailer entity
+            patch = {
+                "last_seen": event.time.isoformat(),
+                "current_location": data.get("pickup_location"),
+            }
+            for k in _TRAILER_FIELDS:
+                if k in data and data[k] is not None:
+                    patch[k] = data[k]
+            await state.upsert("trailer", trailer_urn, patch)
+            
+            # Link trailer to shipment
+            shipment_urn = data.get("shipment_urn")
+            if shipment_urn:
+                await state.link(trailer_urn, shipment_urn)
+            
+            # Link truck to trailer (for handoff chain tracking)
+            truck_urn = subject
+            if truck_urn and truck_urn.startswith("urn:mandala:truck:"):
+                await state.link(truck_urn, trailer_urn)
+
+    if event.type == EventType.TRUCK_DROP.value:
+        trailer_id = data.get("trailer_id")
+        if trailer_id:
+            trailer_urn = f"urn:mandala:trailer:{trailer_id}"
+            patch = {
+                "last_seen": event.time.isoformat(),
+                "current_location": data.get("drop_location"),
+                "drop_reason": data.get("drop_reason"),
+            }
+            await state.upsert("trailer", trailer_urn, patch)
+
+    if event.type == EventType.TRAILER_LOCATION_UPDATED.value:
+        trailer_id = data.get("trailer_id")
+        if trailer_id:
+            trailer_urn = f"urn:mandala:trailer:{trailer_id}"
+            patch = {
+                "last_seen": event.time.isoformat(),
+                "current_location": data.get("location"),
+            }
+            await state.upsert("trailer", trailer_urn, patch)

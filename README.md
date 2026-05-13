@@ -70,6 +70,8 @@ LLM agents.
 - **Compliance features (optional).** PII detection, data residency checks, access logging,
   and change tracking for GDPR/CCPA/SOC2 compliance. All features are opt-in and
   lightweight. See [Compliance](#compliance).
+- **Laredo cross-border support.** Customs hold "Vector Stall" alerts and drayage swap
+  handoff chain tracking via temporal graph edges. See [Laredo Cross-Border Features](#laredo-cross-border-features).
 - **Standalone Docker connectors.** Samsara and Descartes connectors can run as
   independent Docker containers without the full Mandala stack.
 - **Focused scope.** Removed EPCIS adapter, IOF SCRO ontology, AIS placeholder, and
@@ -495,6 +497,100 @@ MANDALA_CHANGE_TRACKING_ENABLED=1
 ### Compliance Feature Summary
 
 | Feature | Purpose | Impact | Env Var |
+
+## Laredo Cross-Border Features
+
+Laredo, Texas is the busiest commercial crossing on the US-Mexico border, handling 15,000-18,000 trucks daily (40% of all US-Mexico crossings). It's considered the "Final Boss" of logistics complexity due to three challenges:
+
+1. **Out-of-order events** — Bridge drayage drivers may not have signal until they hit the US yard, causing delayed telemetry
+2. **Entity-merging** — Linking Mexican tractor ID to US tractor ID via the constant Trailer ID (the "Brokerage Fog")
+3. **Artificial friction** — 2-4 day delays from institutional/legal barriers, not physical distance
+
+Mandala addresses these challenges with two new features:
+
+### Customs Hold Vector Stall Alert
+
+The "Vector Stall" problem: Customs brokers know about holds hours before drivers do. If a driver is 30+ minutes from the bridge when a hold lands, they can be rerouted to a hold lot instead of wasting hours in the queue.
+
+**Implementation:**
+- Descartes MacroPoint connector extracts customs hold context (port of entry, truck location, ETA to bridge)
+- `customs_hold_vector_stall` detector fires alert when hold lands and driver is >30 minutes from bridge
+- Alert includes action: "DO NOT PROCEED TO BRIDGE. Reroute to hold lot."
+
+**Event flow:**
+```
+Descartes webhook → CUSTOMS_HOLD_LANDED event → Vector Stall detector → ALERT_CUSTOMS_HOLD_VECTOR_STALL
+```
+
+**Configuration:**
+```bash
+# Enable customs hold vector stall detection
+MANDALA_CUSTOMS_VECTOR_STALL_ENABLED=1
+
+# Threshold: alert if driver is >30 minutes from bridge (default)
+MANDALA_CUSTOMS_VECTOR_STALL_THRESHOLD_MINUTES=30
+```
+
+**MCP tool:**
+```python
+# Query recent customs hold alerts
+alerts = await tool_get_recent_alerts(severity="critical")
+```
+
+### Drayage Swap Handoff Chain Tracking
+
+The "Brokerage Fog" problem: One shipment involves three different trucks (Mexican long-haul → drayage bridge-crosser → US long-haul) hauling the same trailer. Mandala uses the trailer ID as the constant spine to link all three tractors.
+
+**Implementation:**
+- Trailer entity type with state store projection
+- Temporal graph edges: `Truck-[:HAULED {start: T1, end: T2}]->Trailer`
+- Trailer-Shipment linkage: `Trailer-[:CARRIES]->Shipment`
+- MCP tools for querying handoff chains
+
+**Event types:**
+- `TRUCK_PICKUP` — Creates temporal edge, links truck→trailer→shipment
+- `TRUCK_DROP` — Updates temporal edge with end time
+- `TRAILER_LOCATION_UPDATED` — Updates trailer state
+
+**Graph query:**
+```cypher
+-- Get full handoff chain for a trailer
+MATCH (t:Truck)-[r:HAULED]->(trl:Trailer {id: $trl})
+RETURN t.urn AS truck_urn, r.start AS pickup_time, r.end AS drop_time
+ORDER BY r.start ASC
+```
+
+**MCP tools:**
+```python
+# Get full handoff chain (Mexican → Drayage → US)
+chain = await tool_get_trailer_handoff_chain(trailer_id="TRL-999")
+# Returns: [{truck_urn, pickup_time, drop_time}, ...]
+
+# Get current shipment via trailer
+shipment = await tool_get_shipment_via_trailer(trailer_id="TRL-999")
+# Returns: {trailer_state, shipment_urn, shipment, current_truck_urn}
+```
+
+**Configuration:**
+```bash
+# Enable drayage swap tracking
+MANDALA_DRAYAGE_SWAP_ENABLED=1
+
+# Requires graph view (RedisGraph/FalkorDB module)
+MANDALA_GRAPH_VIEW_ENABLED=1
+```
+
+### Why This Matters
+
+**Time saved per customs hold:** 3.5 hours (driver doesn't sit in 4-hour queue)
+
+**Entity resolution:** No more "where is my shipment?" when the Mexican tractor ID doesn't match the US tractor ID — query via trailer ID.
+
+**Pure event bridge:** Both features stay within Mandala's architectural boundary. No external API calls, no orchestration logic — just event transformation, projection, and alert routing.
+
+### Compliance Feature Summary
+
+| Feature | Purpose | Impact | Env Var |
 |---|---|---|---|
 | Immutable Audit Logging | Permanent event storage for compliance | Iceberg dual-write | `MANDALA_AUDIT_LOG_ENABLED` |
 | Access Logging | Audit trail of all event ingest | Redis stream write | `MANDALA_AUDIT_ACCESS_LOG_ENABLED` |
@@ -751,7 +847,8 @@ Claude Desktop config (`~/.claude/claude_desktop_config.json`):
 
 Tools: `get_shipment`, `get_truck`, `check_customs_status`,
 `get_recent_alerts`, `get_fleet_near_border`, `get_trucks_at_poe_without_filing`,
-`get_cold_chain_breaches`, `get_entity_neighbors`.
+`get_cold_chain_breaches`, `get_entity_neighbors`, `get_trailer_handoff_chain`,
+`get_shipment_via_trailer`.
 
 **Example: Fleet optimization in 30 seconds**
 

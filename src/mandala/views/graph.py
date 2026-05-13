@@ -6,6 +6,10 @@ Projects relationships between canonical entities into a property graph:
     (Shipment {urn})-[:FILED_WITH]->(Authority {code})
     (Shipment {urn})-[:CROSSED]->(POE {id})
 
+Laredo Drayage Swap (temporal edges):
+    (Truck {urn})-[:HAULED {start: T1, end: T2}]->(Trailer {id})
+    (Trailer {id})-[:CARRIES]->(Shipment {urn})
+
 Enables multi-hop queries ("which shipper's goods have passed through
 Laredo with a customs hold in the last 30 days?") that a KV projection
 can't answer without scanning.
@@ -124,6 +128,45 @@ class GraphView(MaterializedView):
                 await self._query(
                     "MERGE (t:Truck {urn: $t}) " "MERGE (p:POE {id: $p}) " "MERGE (t)-[:CROSSED]->(p)",
                     {"t": truck_urn, "p": str(poe)},
+                )
+            return
+
+        # --- Laredo Drayage Swap: Temporal HAULED edges --------------------
+        if event.type == EventType.TRUCK_PICKUP.value:
+            truck_urn = event.subject
+            trailer_id = data.get("trailer_id")
+            if truck_urn and trailer_id:
+                # Create temporal edge: Truck-[:HAULED {start: T1, end: null}]->Trailer
+                await self._query(
+                    "MERGE (t:Truck {urn: $t}) "
+                    "MERGE (trl:Trailer {id: $trl}) "
+                    "MERGE (t)-[r:HAULED {start: $start, end: null}]->(trl)",
+                    {"t": truck_urn, "trl": str(trailer_id), "start": event.time.isoformat()},
+                )
+            return
+
+        if event.type == EventType.TRUCK_DROP.value:
+            truck_urn = event.subject
+            trailer_id = data.get("trailer_id")
+            if truck_urn and trailer_id:
+                # Update temporal edge: set end time
+                await self._query(
+                    "MATCH (t:Truck {urn: $t})-[r:HAULED]->(trl:Trailer {id: $trl}) "
+                    "SET r.end = $end_time",
+                    {"t": truck_urn, "trl": str(trailer_id), "end_time": event.time.isoformat()},
+                )
+            return
+
+        # --- Trailer-Shipment linkage ----------------------------------------
+        if event.type == EventType.TRAILER_CREATED.value or event.type == EventType.TRUCK_PICKUP.value:
+            trailer_id = data.get("trailer_id")
+            shipment_urn = data.get("shipment_urn")
+            if trailer_id and shipment_urn:
+                await self._query(
+                    "MERGE (trl:Trailer {id: $trl}) "
+                    "MERGE (s:Shipment {urn: $s}) "
+                    "MERGE (trl)-[:CARRIES]->(s)",
+                    {"trl": str(trailer_id), "s": shipment_urn},
                 )
             return
 

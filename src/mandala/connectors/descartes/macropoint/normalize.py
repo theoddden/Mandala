@@ -110,6 +110,18 @@ def normalize(payload: dict[str, Any]) -> list[MandalaEvent]:
             data["location"] = {"lat": float(body["Latitude"]), "lon": float(body["Longitude"])}
         if body.get("Eta") or body.get("eta"):
             data["eta"] = body.get("Eta") or body.get("eta")
+        
+        # Laredo Vector Stall: Extract context for customs holds
+        if status_str in ("CustomsHoldLanded", "CustomsDocumentationMissing", "CustomsInspectionRequired"):
+            data.update({
+                "port_of_entry": body.get("PortOfEntry") or body.get("portOfEntry") or "unknown",
+                "filing_number": body.get("FilingNumber") or body.get("filingNumber"),
+                "hold_reason": body.get("HoldReason") or body.get("holdReason") or status_str,
+                "truck_location": body.get("TruckLocation") or body.get("truckLocation") or "unknown",
+                "eta_to_bridge_minutes": body.get("EtaToBridgeMinutes") or body.get("etaToBridgeMinutes"),
+                "estimated_clearance_hours": body.get("EstimatedClearanceHours") or body.get("estimatedClearanceHours"),
+            })
+        
         events = [
             new_event(
                 type=et,
