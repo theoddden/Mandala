@@ -455,9 +455,55 @@ async def tool_get_bridge_capabilities() -> dict[str, Any]:
         "active_geofences": list(BORDER_POE_COORDS.keys()),
     }
 
+    # MCP tools available
+    mcp_tools = {
+        "core_queries": [
+            {"name": "get_shipment", "description": "Return canonical Shipment object plus timeline"},
+            {"name": "get_truck", "description": "Return last-known truck position, telemetry, and linked shipment"},
+            {"name": "check_customs_status", "description": "Return customs status, authority, broker, and hold reason"},
+        ],
+        "alerts_monitoring": [
+            {"name": "get_recent_alerts", "description": "Return recent Mandala alert events, optionally filtered by severity"},
+            {"name": "get_cold_chain_breaches", "description": "Return cold-chain breach events across the fleet"},
+        ],
+        "geospatial_queries": [
+            {"name": "get_fleet_near_border", "description": "Return trucks within radius_km of a Port-of-Entry"},
+            {"name": "get_truck_position", "description": "Return current position of a truck from geospatial view"},
+            {"name": "get_dead_zones_near", "description": "Return dead zones (connectivity gaps) near a location"},
+        ],
+        "border_operations": [
+            {"name": "get_trucks_at_poe_without_filing", "description": "Return trucks at POE without released customs filing"},
+            {"name": "get_trucks_at_poe", "description": "Return all trucks currently at a Port-of-Entry"},
+        ],
+        "materialized_views": [
+            {"name": "get_entity_neighbors", "description": "Multi-hop graph traversal from a URN"},
+            {"name": "get_temperature_readings", "description": "Return temperature readings for a specific truck over time"},
+            {"name": "materialized_views_health", "description": "Return health status of all materialized views"},
+        ],
+        "external_integrations": [
+            {"name": "get_rail_status", "description": "Fetch rail intermodal status from Vizion API"},
+            {"name": "get_fmcsa_carrier_info", "description": "Fetch carrier safety data from FMCSA SAFER database"},
+        ],
+        "operations": [
+            {"name": "replay_events", "description": "Replay historical events to fix state after bugs"},
+            {"name": "query_event_log", "description": "Query the Iceberg event log with filters"},
+            {"name": "inspect_dlq", "description": "Inspect the Dead Letter Queue for failed events"},
+        ],
+        "health_connectors": [
+            {"name": "health_check", "description": "Return health status of Mandala components"},
+            {"name": "get_connector_status", "description": "Return configuration status of all Mandala connectors"},
+            {"name": "get_bridge_capabilities", "description": "Return self-describing bridge metadata"},
+        ],
+        "compliance_zk": [
+            {"name": "query_zk_proofs", "description": "Query ZK proof status for cold-chain breaches"},
+            {"name": "validate_schema", "description": "Validate a Mandala vendor schema file"},
+        ],
+    }
+
     return {
-        "bridge_version": "0.3.0",
+        "bridge_version": "0.3.1",
         "schema_version": "0.3",
+        "mcp_tools": mcp_tools,
         "connectors": connectors,
         "canonical_event_registry": canonical_event_registry,
         "poe_geofences": poe_geofences,
@@ -543,6 +589,139 @@ async def tool_validate_schema(schema_path: str) -> dict[str, Any]:
         return {"valid": False, "error": "PyYAML not installed. Install with: pip install pyyaml"}
     except Exception as exc:
         return {"valid": False, "error": str(exc)}
+
+
+async def tool_get_truck_position(truck_urn: str) -> dict[str, Any]:
+    """Return the current position of a truck from the geospatial view."""
+    from mandala.views.geospatial import GeospatialView
+
+    state, r = await _state()
+    try:
+        view = GeospatialView(r)
+        position = await view.truck_position(truck_urn)
+        if position is None:
+            return {"truck_urn": truck_urn, "error": "Truck not found in geospatial view"}
+        return position
+    finally:
+        await r.aclose()
+
+
+async def tool_get_trucks_at_poe(poe: str) -> dict[str, Any]:
+    """Return all trucks currently at a Port-of-Entry (regardless of filing status)."""
+    from mandala.views.bitmap import BitmapView
+
+    state, r = await _state()
+    try:
+        view = BitmapView(r, state)
+        urns = await view.at_poe(poe)
+        return {"poe": poe, "count": len(urns), "trucks": urns}
+    finally:
+        await r.aclose()
+
+
+async def tool_get_temperature_readings(
+    truck_urn: str,
+    since_hours: int = 24,
+    until_hours: int = 0,
+    limit: int = 1000,
+) -> dict[str, Any]:
+    """Return temperature readings for a specific truck within a time range."""
+    from datetime import UTC, datetime, timedelta
+
+    from mandala.views.timeseries import TimeseriesView
+
+    state, r = await _state()
+    try:
+        view = TimeseriesView(r)
+        since = (datetime.now(UTC) - timedelta(hours=since_hours)).timestamp()
+        until = (datetime.now(UTC) - timedelta(hours=until_hours)).timestamp()
+        readings = await view.range(truck_urn, since, until, limit)
+        return {
+            "truck_urn": truck_urn,
+            "since_hours": since_hours,
+            "until_hours": until_hours,
+            "count": len(readings),
+            "readings": readings,
+        }
+    finally:
+        await r.aclose()
+
+
+async def tool_materialized_views_health() -> dict[str, Any]:
+    """Return health status of all materialized views."""
+    from mandala.views.bitmap import BitmapView
+    from mandala.views.dead_zone import DeadZoneView
+    from mandala.views.geospatial import GeospatialView
+    from mandala.views.graph import GraphView
+    from mandala.views.timeseries import TimeseriesView
+
+    state, r = await _state()
+    try:
+        views = {
+            "geospatial": GeospatialView(r),
+            "timeseries": TimeseriesView(r),
+            "bitmap": BitmapView(r, state),
+            "graph": GraphView(r),
+            "dead_zones": DeadZoneView(r),
+        }
+        health_status: dict[str, Any] = {"views": {}}
+        for name, view in views.items():
+            try:
+                health_status["views"][name] = await view.health()
+            except Exception as exc:
+                health_status["views"][name] = {"name": name, "ok": False, "error": str(exc)}
+        health_status["overall_status"] = all(v.get("ok", False) for v in health_status["views"].values())
+        return health_status
+    finally:
+        await r.aclose()
+
+
+async def tool_get_rail_status(container_id: str) -> dict[str, Any]:
+    """Fetch rail intermodal status for a container from Vizion API."""
+    from mandala.connectors.rail.vizion import VizionRailProvider
+
+    try:
+        provider = VizionRailProvider()
+        if not provider.is_configured():
+            return {"error": "Vizion rail provider not configured"}
+
+        intermodal = provider.get_intermodal_status(str(container_id))
+        return {
+            "container_id": intermodal.container_id,
+            "carrier_scac": intermodal.carrier_scac,
+            "origin_ramp": intermodal.origin_ramp,
+            "destination_ramp": intermodal.destination_ramp,
+            "last_free_day": intermodal.last_free_day.isoformat() if intermodal.last_free_day else None,
+            "available_for_pickup": intermodal.available_for_pickup,
+            "eta": intermodal.eta.isoformat() if intermodal.eta else None,
+            "provider": intermodal.provider,
+            "retrieved_at": intermodal.retrieved_at.isoformat(),
+            "milestones": [
+                {
+                    "event_type": m.event_type,
+                    "location": m.location,
+                    "timestamp": m.timestamp.isoformat(),
+                    "timezone": m.timezone,
+                }
+                for m in intermodal.milestones
+            ],
+        }
+    except Exception as exc:
+        return {"error": str(exc), "container_id": container_id}
+
+
+async def tool_get_fmcsa_carrier_info(dot_number: str) -> dict[str, Any]:
+    """Fetch carrier safety data from FMCSA SAFER database."""
+    from mandala.connectors.fmcsa.client import FMCSAClient
+
+    try:
+        client = FMCSAClient()
+        carrier = await client.get_carrier_snapshot(str(dot_number))
+        if not carrier:
+            return {"error": f"Carrier not found: {dot_number}"}
+        return carrier.model_dump() if hasattr(carrier, "model_dump") else carrier
+    except Exception as exc:
+        return {"error": str(exc), "dot_number": dot_number}
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -743,7 +922,7 @@ def build_server():  # type: ignore[no-untyped-def]
             ),
             Tool(
                 name="get_bridge_capabilities",
-                description="Return self-describing bridge metadata: active connectors, event schemas, vendor payload mappings, and POE geofence configuration.",
+                description="Return self-describing bridge metadata: MCP tools, active connectors, event schemas, vendor payload mappings, and POE geofence configuration.",
                 inputSchema={"type": "object", "properties": {}},
             ),
             Tool(
@@ -764,6 +943,61 @@ def build_server():  # type: ignore[no-untyped-def]
                     "type": "object",
                     "properties": {"schema_path": {"type": "string"}},
                     "required": ["schema_path"],
+                },
+            ),
+            Tool(
+                name="get_truck_position",
+                description="Return the current position of a truck from the geospatial view.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"truck_urn": {"type": "string"}},
+                    "required": ["truck_urn"],
+                },
+            ),
+            Tool(
+                name="get_trucks_at_poe",
+                description="Return all trucks currently at a Port-of-Entry (regardless of filing status).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"poe": {"type": "string"}},
+                    "required": ["poe"],
+                },
+            ),
+            Tool(
+                name="get_temperature_readings",
+                description="Return temperature readings for a specific truck within a time range.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "truck_urn": {"type": "string"},
+                        "since_hours": {"type": "integer", "default": 24},
+                        "until_hours": {"type": "integer", "default": 0},
+                        "limit": {"type": "integer", "default": 1000},
+                    },
+                    "required": ["truck_urn"],
+                },
+            ),
+            Tool(
+                name="materialized_views_health",
+                description="Return health status of all materialized views (geospatial, timeseries, bitmap, graph, dead_zones).",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="get_rail_status",
+                description="Fetch rail intermodal status for a container from Vizion API.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"container_id": {"type": "string"}},
+                    "required": ["container_id"],
+                },
+            ),
+            Tool(
+                name="get_fmcsa_carrier_info",
+                description="Fetch carrier safety data from FMCSA SAFER database by DOT number.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"dot_number": {"type": "string"}},
+                    "required": ["dot_number"],
                 },
             ),
         ]
@@ -836,6 +1070,23 @@ def build_server():  # type: ignore[no-untyped-def]
             )
         elif name == "validate_schema":
             result = await tool_validate_schema(schema_path=arguments["schema_path"])
+        elif name == "get_truck_position":
+            result = await tool_get_truck_position(truck_urn=arguments["truck_urn"])
+        elif name == "get_trucks_at_poe":
+            result = await tool_get_trucks_at_poe(poe=arguments["poe"])
+        elif name == "get_temperature_readings":
+            result = await tool_get_temperature_readings(
+                truck_urn=arguments["truck_urn"],
+                since_hours=int(arguments.get("since_hours", 24)),
+                until_hours=int(arguments.get("until_hours", 0)),
+                limit=int(arguments.get("limit", 1000)),
+            )
+        elif name == "materialized_views_health":
+            result = await tool_materialized_views_health()
+        elif name == "get_rail_status":
+            result = await tool_get_rail_status(container_id=arguments["container_id"])
+        elif name == "get_fmcsa_carrier_info":
+            result = await tool_get_fmcsa_carrier_info(dot_number=arguments["dot_number"])
         else:
             raise ValueError(f"unknown tool: {name}")
         return [TextContent(type="text", text=json.dumps(result, default=str, indent=2))]
