@@ -92,9 +92,9 @@ fn verify_hmac_sha256(
 #[cfg(feature = "h3")]
 #[pyfunction]
 fn h3_hash(latitude: f64, longitude: f64, resolution: u32) -> PyResult<String> {
-    use h3ron::{H3Cell, Point};
-    let point = Point::new(longitude, latitude);
-    let cell = H3Cell::from_point(point, resolution as u8)
+    use h3ron::{H3Cell, Coordinate};
+    let coord = Coordinate::new(latitude, longitude);
+    let cell = H3Cell::from_coordinate(coord, resolution as u8)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
     Ok(cell.to_string())
 }
@@ -152,6 +152,7 @@ pub struct LatchResult {
 #[pymethods]
 impl LatchResult {
     #[new]
+    #[pyo3(signature = (decision, last_committed_time=None, reason=String::new(), time_diff_seconds=None, lag_seconds=None))]
     fn new(
         decision: String,
         last_committed_time: Option<String>,
@@ -172,11 +173,11 @@ impl LatchResult {
 /// Core Stator's Latch decision logic (synchronous, no I/O)
 /// Python handles Redis operations, Rust handles the decision logic
 #[pyfunction]
-#[pyo3(signature = (event_time_str, last_committed_time_str=None, tolerance_seconds))]
+#[pyo3(signature = (event_time_str, tolerance_seconds, last_committed_time_str=None))]
 fn stator_latch_check(
     event_time_str: &str,
-    last_committed_time_str: Option<&str>,
     tolerance_seconds: f64,
+    last_committed_time_str: Option<&str>,
 ) -> PyResult<LatchResult> {
     // Parse timestamps
     let event_time = parse_timestamp_to_datetime(event_time_str)?;
@@ -198,7 +199,7 @@ fn stator_latch_check(
     }
 
     let last_committed = last_committed.unwrap();
-    let time_diff = (event_time - last_committed).num_seconds();
+    let time_diff = (event_time - last_committed).num_seconds() as f64;
 
     // Check for duplicate (within tolerance)
     if time_diff.abs() <= tolerance_seconds {
@@ -498,8 +499,8 @@ fn normalize_country_code(country: &str) -> String {
 
 /// Check if country is in allowed regions
 #[pyfunction]
-#[pyo3(signature = (country_code=None, allowed_regions))]
-fn data_residency_check(country_code: Option<&str>, allowed_regions: Vec<String>) -> PyResult<bool> {
+#[pyo3(signature = (allowed_regions, country_code=None))]
+fn data_residency_check(allowed_regions: Vec<String>, country_code: Option<&str>) -> PyResult<bool> {
     match country_code {
         None => Ok(true),  // No country found, allow through
         Some(code) => {
@@ -632,11 +633,11 @@ impl BufferedEvent {
 
 /// Check if buffered event should be held (event-time determinism)
 #[pyfunction]
-#[pyo3(signature = (event_time_str, next_expected_str=None, gap_threshold_seconds))]
+#[pyo3(signature = (event_time_str, gap_threshold_seconds, next_expected_str=None))]
 fn reorder_buffer_should_buffer(
     event_time_str: &str,
-    next_expected_str: Option<&str>,
     gap_threshold_seconds: f64,
+    next_expected_str: Option<&str>,
 ) -> PyResult<(bool, Option<String>)> {
     let event_time = parse_timestamp_to_datetime(event_time_str)?;
 
@@ -646,7 +647,7 @@ fn reorder_buffer_should_buffer(
     }
 
     let next_expected = parse_timestamp_to_datetime(next_expected_str.unwrap())?;
-    let time_gap = (event_time - next_expected).num_seconds();
+    let time_gap = (event_time - next_expected).num_seconds() as f64;
 
     // Event is in-order and close enough - release immediately
     if time_gap >= 0.0 && time_gap <= gap_threshold_seconds {
@@ -669,7 +670,7 @@ fn reorder_buffer_is_ready(
     let next_expected = parse_timestamp_to_datetime(next_expected_str)?;
     let current_time = parse_timestamp_to_datetime(current_time_str)?;
 
-    let wait_time = (current_time - buffered_time).num_seconds();
+    let wait_time = (current_time - buffered_time).num_seconds() as f64;
     let is_in_order = buffered_time >= next_expected;
     let is_expired = wait_time >= max_wait_seconds;
 
