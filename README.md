@@ -32,56 +32,6 @@ LLM agents.
                           (every shipment is a trace)
 ```
 
-## Event Lifecycle
-
-```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌─────────────┐
-│   INGEST    │───▶│    LATCH     │───▶│    SIEVE    │───▶│    TRACE    │
-│ Webhook/    │    │ Event-time   │    │ Detectors   │    │ OTLP Span   │
-│ POST /events│    │ Determinism  │    │ + Alerts    │    │ Export      │
-└─────────────┘    └──────────────┘    └─────────────┘    └─────────────┘
-     │                   │                   │                   │
-     ▼                   ▼                   ▼                   ▼
-  Raw Vendor      Out-of-order      State Store        Jaeger / Tempo
-  Payload         Detection          Projection          Honeycomb / Datadog
-```
-
-## What's new in 0.3
-
-- **Trace-native envelope.** Every `MandalaEvent` is an OpenTelemetry span.
-  Shipment-subject derives `trace_id` deterministically, so all events for one
-  shipment auto-correlate into a single distributed trace in any OTLP-compatible
-  backend. See [Trace-native logistics](#trace-native-logistics).
-- **Logistics semantic conventions.** Proposed `logistics.*` OTel attribute
-  namespace for filtering and aggregation in observability stacks.
-- **Deterministic Event-Time Windowing.** Geometric Idempotency and the Stator's
-  Latch prevent state-machine corruption from out-of-order spatial data. Events
-  arriving from dead zones are detected as time-travel data and routed to backfill
-  instead of triggering false alerts. See [Deterministic Event-Time Windowing](#deterministic-event-time-windowing).
-- **Production reliability.** Circuit breakers, adaptive backpressure, rate limiting,
-  DLQ with retry policy, detector sandbox with timeout protection, and event replay
-  for bug fixes. See [Production reliability features](#production-reliability-features).
-- **High availability.** Redis Sentinel support with nginx rate limiting. HA profile
-  adds redis-replica + 3x sentinel for self-hosted HA without AWS ElastiCache.
-- **Apache Iceberg event log (optional).** Dual-write to external object storage
-  (S3/GCS/Azure) for permanent event logging. Disabled by default.
-- **Zero-Knowledge Proofs.** Privacy-preserving verification for insurance/customs/audits
-  using ZK circuits for cold-chain breach proofs.
-- **Compliance features (optional).** PII detection, data residency checks, access logging,
-  and change tracking for GDPR/CCPA/SOC2 compliance. All features are opt-in and
-  lightweight. See [Compliance](#compliance).
-- **Laredo cross-border support.** Customs hold "Vector Stall" alerts and drayage swap
-  handoff chain tracking via temporal graph edges. See [Laredo Cross-Border Features](#laredo-cross-border-features).
-- **Standalone Docker connectors.** Samsara and Descartes connectors can run as
-  independent Docker containers without the full Mandala stack.
-- **Focused scope.** Removed EPCIS adapter, IOF SCRO ontology, AIS placeholder, and
-  webhook-hot-path enrichment. Enrichment runs as detectors in the worker (FMCSA,
-  Rail) — never blocking ingest.
-- **Minimum footprint.** 4 services, ~350MB RAM. Optional profiles (`ha`, `otel`,
-  `traces`, `all`) for Sentinel, OTel collector, and Jaeger UI.
-
-## Why
-
 Logistics data is fragmented across vendors. Samsara has truck telemetry,
 Descartes/CargoWise have customs filings, Vizion has rail status, FMCSA
 has carrier safety data. These systems don't integrate. A truck enters a
@@ -90,12 +40,6 @@ see it. A customs hold lands in Descartes — the dispatcher using Samsara
 doesn't know.
 
 Mandala provides a canonical event layer that connects these systems.
-
-## What Mandala actually is
-
-An **event-sourced integration bridge** with a short-lived Redis
-projection. Not a visibility platform, not a TMS, not a data warehouse —
-the plumbing that connects them.
 
 ### Architectural boundary: POST /events
 
@@ -205,16 +149,6 @@ event = new_event(
 # event.trace_id == SHA256("urn:mandala:shipment:ABC123")[:32]
 # event.to_otlp_span() returns an OTLP/JSON span ready for any backend
 ```
-
-**What you get for free** by being trace-native:
-
-- Jaeger / Grafana Tempo / Honeycomb / Datadog / Grafana Cloud trace
-  visualization — out of the box, no Mandala dashboard required.
-- Latency analysis across spans (factory→delivery P50/P95).
-- Tail-based sampling, span links, error budgets — every OTel feature.
-- Agent-readable causality: LLMs already reason about distributed systems
-  via traces.
-
 ### Running with traces locally
 
 ```bash
@@ -281,7 +215,7 @@ MANDALA_SPATIAL_COHERENCE_ENABLED=1
 MANDALA_MAX_VELOCITY_MPS=150.0  # ~335 mph, generous for trucks
 ```
 
-### The "Military Grade" Pattern
+### The Key Pattern
 
 ```python
 # The Stator's Latch checks event-time determinism
@@ -296,60 +230,6 @@ if packet.event_time < last_committed_time:
 # Commit the new state and advance the latch
 commit_state_to_paged_memory(packet)
 redis.set(f"latch:{packet.source_id}", packet.event_time)
-```
-
-### Benefits
-
-- **For Logistics:** Reduces false "Truck Stolen" or "Geofence Breached" alerts caused
-  by out-of-order spatial data
-- **For Audits:** Three-timestamp accounting (occurred_at, received_at, processed_at)
-  provides proof of detection latency relative to event occurrence
-
-## Apache Iceberg Event Log (Optional)
-
-Mandala can dual-write events to Apache Iceberg on external object storage
-(S3, GCS, or Azure). This is optional and disabled by default. Mandala itself
-has zero storage - it's a pure event bridge.
-
-When enabled, every event published to the Redis Stream is also written to
-Iceberg in the background (non-blocking). The storage is external to Mandala
-and managed by your infrastructure.
-
-Use cases:
-- Permanent event log for audit and compliance
-- Event replay for bug fixes and state correction
-- Integration with downstream warehouse pipelines
-
-Configuration:
-
-```bash
-MANDALA_EVENT_LOG_ENABLED=1
-MANDALA_ICEBERG_CATALOG=rest
-MANDALA_ICEBERG_CATALOG_URI=http://localhost:8181
-MANDALA_ICEBERG_WAREHOUSE=s3://mandala-events/
-MANDALA_ICEBERG_TABLE=mandala.events
-MANDALA_ICEBERG_NAMESPACE=mandala
-```
-
-## Zero-Knowledge Proofs
-
-Mandala supports privacy-preserving verification for cold-chain breaches
-using Zero-Knowledge Proofs. This allows verification of temperature
-violations without exposing the underlying sensor data.
-
-The ZK proving service generates cryptographic proofs that a temperature
-breach occurred according to the declared shipment parameters, which can
-be verified by insurance companies, customs authorities, or auditors without
-revealing sensitive telemetry data.
-
-Configuration:
-
-```bash
-MANDALA_ZK_ENABLED=1
-MANDALA_ZK_MAX_CONCURRENT_PROOFS=4
-MANDALA_ZK_CIRCUIT_PATH=/opt/mandala/zk/circuits/
-MANDALA_ZK_PROVING_KEY=/opt/mandala/zk/keys/cold_chain_breach.pk
-MANDALA_ZK_VERIFICATION_KEY=/opt/mandala/zk/keys/cold_chain_breach.vk
 ```
 
 ## Rust Acceleration Layer
@@ -383,31 +263,6 @@ pip install target/wheels/mandala_rust_ext-*.whl
 - 2-5x faster bitmap bit manipulation
 - Zero-copy memory handling for large event batches
 - Memory-safe Rust implementation with no FFI overhead
-
-**CI/CD Integration:**
-
-The Rust extension is built and tested automatically in the CI/CD pipeline:
-- Rust build job compiles the extension with maturin
-- Rust test job runs unit tests and clippy linting
-- Python test job installs the compiled wheel before running tests
-- Rust linting (clippy and fmt) integrated into the lint job
-
-**Verification:**
-
-```python
-import mandala_rust_ext
-# If this imports successfully, Rust acceleration is enabled
-
-# Check specific functions
-from mandala_rust_ext import (
-    sha256_hex,
-    h3_hash,
-    bitmap_extract_offsets,
-    decode_graph_result,
-    geohash_fallback,
-    s2_hash_fallback,
-)
-```
 
 ## Compliance
 
@@ -501,6 +356,7 @@ MANDALA_DATA_RESIDENCY_ALLOWED_REGIONS=US,CA,MX  # North America
 
 **Response:** Events from disallowed regions receive HTTP 403 Forbidden.
 
+
 ### Change Tracking
 
 Tracks state changes by comparing current event data with prior state from Redis. Emits audit events when significant field changes are detected.
@@ -520,45 +376,16 @@ MANDALA_CHANGE_TRACKING_ENABLED=1
 ### Compliance Feature Summary
 
 | Feature | Purpose | Impact | Env Var |
+|---|---|---|---|
+| Immutable Audit Logging | Permanent event storage for compliance | Iceberg dual-write | `MANDALA_AUDIT_LOG_ENABLED` |
+| Access Logging | Audit trail of all event ingest | Redis stream write | `MANDALA_AUDIT_ACCESS_LOG_ENABLED` |
+| PII Detection | Scan events for PII patterns | Detector sandbox | `MANDALA_PII_DETECTION_ENABLED` |
+| Data Residency | Reject events from disallowed regions | Middleware check | `MANDALA_DATA_RESIDENCY_ENABLED` |
+| Change Tracking | Track state changes for audit | Detector sandbox | `MANDALA_CHANGE_TRACKING_ENABLED` |
 
-## Laredo Cross-Border Features
+**All compliance features are disabled by default. Enable only what you need.**
 
-Laredo, Texas is the busiest commercial crossing on the US-Mexico border, handling 15,000-18,000 trucks daily (40% of all US-Mexico crossings). It's considered the "Final Boss" of logistics complexity due to three challenges:
-
-1. **Out-of-order events** — Bridge drayage drivers may not have signal until they hit the US yard, causing delayed telemetry
-2. **Entity-merging** — Linking Mexican tractor ID to US tractor ID via the constant Trailer ID (the "Brokerage Fog")
-3. **Artificial friction** — 2-4 day delays from institutional/legal barriers, not physical distance
-
-Mandala addresses these challenges with two new features:
-
-### Customs Hold Vector Stall Alert
-
-The "Vector Stall" problem: Customs brokers know about holds hours before drivers do. If a driver is 30+ minutes from the bridge when a hold lands, they can be rerouted to a hold lot instead of wasting hours in the queue.
-
-**Implementation:**
-- Descartes MacroPoint connector extracts customs hold context (port of entry, truck location, ETA to bridge)
-- `customs_hold_vector_stall` detector fires alert when hold lands and driver is >30 minutes from bridge
-- Alert includes action: "DO NOT PROCEED TO BRIDGE. Reroute to hold lot."
-
-**Event flow:**
-```
-Descartes webhook → CUSTOMS_HOLD_LANDED event → Vector Stall detector → ALERT_CUSTOMS_HOLD_VECTOR_STALL
-```
-
-**Configuration:**
-```bash
-# Enable customs hold vector stall detection
-MANDALA_CUSTOMS_VECTOR_STALL_ENABLED=1
-
-# Threshold: alert if driver is >30 minutes from bridge (default)
-MANDALA_CUSTOMS_VECTOR_STALL_THRESHOLD_MINUTES=30
-```
-
-**MCP tool:**
-```python
-# Query recent customs hold alerts
-alerts = await tool_get_recent_alerts(severity="critical")
-```
+...
 
 ### Drayage Swap Handoff Chain Tracking
 
@@ -602,107 +429,6 @@ MANDALA_DRAYAGE_SWAP_ENABLED=1
 # Requires graph view (RedisGraph/FalkorDB module)
 MANDALA_GRAPH_VIEW_ENABLED=1
 ```
-
-### Why This Matters
-
-**Time saved per customs hold:** 3.5 hours (driver doesn't sit in 4-hour queue)
-
-**Entity resolution:** No more "where is my shipment?" when the Mexican tractor ID doesn't match the US tractor ID — query via trailer ID.
-
-**Pure event bridge:** Both features stay within Mandala's architectural boundary. No external API calls, no orchestration logic — just event transformation, projection, and alert routing.
-
-### Compliance Feature Summary
-
-| Feature | Purpose | Impact | Env Var |
-|---|---|---|---|
-| Immutable Audit Logging | Permanent event storage for compliance | Iceberg dual-write | `MANDALA_AUDIT_LOG_ENABLED` |
-| Access Logging | Audit trail of all event ingest | Redis stream write | `MANDALA_AUDIT_ACCESS_LOG_ENABLED` |
-| PII Detection | Scan events for PII patterns | Detector sandbox | `MANDALA_PII_DETECTION_ENABLED` |
-| Data Residency | Reject events from disallowed regions | Middleware check | `MANDALA_DATA_RESIDENCY_ENABLED` |
-| Change Tracking | Track state changes for audit | Detector sandbox | `MANDALA_CHANGE_TRACKING_ENABLED` |
-
-**All compliance features are disabled by default. Enable only what you need.**
-
-## Standalone Docker Connectors
-
-Samsara and Descartes connectors can run as independent Docker containers
-without the full Mandala stack. This is useful for:
-
-- Running connectors in separate infrastructure
-- Testing connectors in isolation
-- Integrating with existing event pipelines
-
-```bash
-# Samsara connector standalone
-docker compose -f docker-compose.samsara-connector.yml up
-
-# Descartes connector standalone
-docker compose -f docker-compose.descartes-connector.yml up
-```
-
-## Hosting profiles
-
-Mandala is designed for minimal resource usage. The default stack is 4 services
-with ~350MB RAM, suitable for a $5/mo VPS. Additional features are opt-in via
-docker compose profiles.
-
-| Profile | Adds | RAM | Use case |
-|---|---|---|---|
-| (default) | redis, nginx, api, worker | ~350MB | Self-hosted, small fleet, <1k events/sec |
-| `--profile ha` | redis-replica + 3x sentinel | +150MB | Self-hosted HA without AWS ElastiCache |
-| `--profile otel` | otel-collector | +50MB | Route spans to your APM (Honeycomb/Datadog/Tempo) |
-| `--profile traces` | otel-collector + jaeger | +250MB | Local trace browsing UI |
-| `--profile all` | ha + traces | ~750MB | Full local dev with HA and trace visualization |
-
-```bash
-docker compose up                        # minimum (nginx + rate limiting)
-docker compose --profile ha up           # +Redis Sentinel for HA
-docker compose --profile otel up         # +OTLP export
-docker compose --profile traces up       # +Jaeger UI
-docker compose --profile all up          # everything
-```
-
-Trace storage (Jaeger / Tempo / Honeycomb / Datadog) is **always
-external** — Mandala produces spans; it doesn't host them. This keeps the
-core footprint flat regardless of trace volume.
-
-## v0.3 scope
-
-Mandala works out of the box with no commercial agreements required:
-
-- **Samsara connector** — webhook + REST client with outbound enrichment push
-  to Samsara custom fields and alerts
-- **Descartes MacroPoint connector** — public carrier documentation
-- **WiseTech CargoWise connector** — eAdaptor inbound webhook (Universal Event
-  XML) + outbound client for status updates
-- **FMCSA SAFER enrichment detector** — free public API, enriches carrier events
-  with live CSA scores, inspection history, OOS rate, and operating authority.
-  No credentials required. Runs as a detector in the worker, not the webhook
-  hot path
-- **Vizion API rail enrichment detector** — covers all 7 Class I North American
-  railways (UP, BNSF, CSX, NS, CN, CPKC) with one API key. Container events get
-  rail status, milestones, ETA, last free day, and pickup availability
-- **Cross-border alert engine** — fires when a truck enters a POE geofence with
-  no matching customs filing
-- **Cold-chain alerts** — temperature against declared shipment range
-- **Load-board auto-posting** (DAT, opt-in) — emits `mandala.truck.empty` on
-  delivery and posts available capacity to configured boards
-- **Fuel-card connectors** — Coast, FLEETCOR/Comdata, WEX, EFS for cost-per-mile
-  and cost-per-route analytics
-- **MCP server** — 8 read-only tools: `get_shipment`, `get_truck`,
-  `check_customs_status`, `get_recent_alerts`, `get_fleet_near_border`,
-  `get_trucks_at_poe_without_filing`, `get_cold_chain_breaches`,
-  `get_entity_neighbors`
-- **dbt-mandala package** — staging + intermediate + 8 marts including
-  `mandala_lane_intelligence` (lane-delay baselines from accumulated crossing
-  history)
-- **OTLP exporter** — opt-in trace export to any OTLP backend
-- **Single Redis dependency.** No Postgres, no Kafka
-
-Aurora and SAP scaffolds exist as stubs pending commercial partnerships.
-See `docs/integrations/aurora.md` and `docs/integrations/sap.md`.
-
-Mandala works with only Samsara configured; additional connectors are optional.
 
 ## Cross-border POE geofencing
 
@@ -1064,125 +790,8 @@ await PostgresCDC(
 
 These are your scripts. Mandala just needs events in the right format.
 
-## Schema-First Development
 
-Mandala is a neutral event bridge. We don't dictate which vendors you integrate. Instead, we provide a schema-first development layer that lets you integrate **any** vendor without needing actual API credentials.
-
-### The Philosophy
-
-**Mandala is the stator.** You define the mapping from your vendor's data format to Mandala's canonical event schema. We handle projection, detection, alerting, and OTLP export.
-
-This means:
-- No vendor contracts required during development
-- Test your entire pipeline with mock events
-- Define your own vendor schemas
-- Zero changes to Mandala core
-
-### Vendor Schema Definition
-
-Define your vendor integration with a YAML schema file:
-
-```yaml
-# schemas/my-fleet/truck-position.yaml
-
-vendor: my-fleet
-canonical_type: mandala.truck.position.updated
-description: Real-time truck position from custom fleet system
-
-mapping:
-  vehicle_id: logistics.truck.id
-  gps_lat: logistics.location.latlon.latitude
-  gps_lon: logistics.location.latlon.longitude
-  event_timestamp: time
-
-example_vendor_payload: |
-  {
-    "vehicle_id": "TRK-001",
-    "gps_lat": 34.0522,
-    "gps_lon": -118.2437,
-    "event_timestamp": "2026-05-11T20:30:00Z"
-  }
-
-required_fields:
-  - vehicle_id
-  - gps_lat
-  - gps_lon
-  - event_timestamp
-```
-
-See `schemas/SCHEMA_SPECIFICATION.md` for the full schema specification.
-
-### Generate Mock Events
-
-Once you've defined your schema, generate mock events to test your pipeline:
-
-```bash
-python scripts/generate_mock_events.py \
-  --schema schemas/my-fleet/truck-position.yaml \
-  --count 100 \
-  --output mock_events.jsonl
-```
-
-This generates realistic Mandala canonical events following your schema. POST them to Mandala:
-
-```bash
-curl -X POST http://localhost:8000/events \
-  -H "Content-Type: application/json" \
-  --data-binary @mock_events.jsonl
-```
-
-### Validate Schemas and Payloads
-
-Validate your schema structure:
-
-```bash
-python scripts/validate_schema.py --schema schemas/my-fleet/truck-position.yaml
-```
-
-Validate real vendor payloads against your schema:
-
-```bash
-python scripts/validate_schema.py \
-  --schema schemas/my-fleet/truck-position.yaml \
-  --payload real_payload.json
-```
-
-### What This Enables
-
-- **Parallel development**: Build detectors/alerts while another team builds real connectors
-- **CI/CD without external dependencies**: Test event processing in CI without vendor credentials
-- **Faster onboarding**: New developers test Mandala in 5 minutes, not 5 days of vendor setup
-- **Any vendor**: Define a schema for any vendor — Samsara, Descartes, custom systems, anything
-
-### Example Workflow
-
-1. Copy `schemas/templates/custom-vendor-example.yaml` to `schemas/my-vendor/my-event.yaml`
-2. Edit the YAML to map your vendor's fields to `logistics.*` attributes
-3. Generate mock events: `python scripts/generate_mock_events.py --schema schemas/my-vendor/my-event.yaml --count 100`
-4. POST to Mandala: `curl -X POST http://localhost:8000/events --data-binary @mock_events.jsonl`
-5. Test detectors, alerts, views, OTLP export
-6. Build real connector when ready (or keep using mock events for testing)
-
-### Canonical Attributes
-
-Mandala uses the `logistics.*` semantic convention namespace. Common attributes:
-
-| Attribute | Description |
-|---|---|
-| `logistics.truck.id` | Truck identifier |
-| `logistics.location.latlon.latitude` | Latitude coordinate |
-| `logistics.location.latlon.longitude` | Longitude coordinate |
-| `logistics.location.geofence.name` | Geofence name |
-| `logistics.shipment.id` | Shipment identifier |
-| `logistics.carrier.scac` | Carrier SCAC code |
-| `logistics.compliance.hold.type` | Hold type |
-| `time` | Event timestamp |
-
-See `SCHEMA.md` for the full canonical attribute registry.
-
-## The dbt package
-
-The Mandala worker (or your own pipeline) writes events to a warehouse
+##The Mandala worker (or your own pipeline) writes events to a warehouse
 table named `raw_mandala_events`. Then in your dbt project:
 
 ```yaml
@@ -1278,21 +887,54 @@ module "mandala" {
   vizion_api_key         = var.vizion_key
 }
 ```
+## Standalone Docker Connectors
+
+Samsara and Descartes connectors can run as independent Docker containers
+without the full Mandala stack. This is useful for:
+
+- Running connectors in separate infrastructure
+- Testing connectors in isolation
+- Integrating with existing event pipelines
+
+```bash
+# Samsara connector standalone
+docker compose -f docker-compose.samsara-connector.yml up
+
+# Descartes connector standalone
+docker compose -f docker-compose.descartes-connector.yml up
+```
+
+## Hosting profiles
+
+Mandala is designed for minimal resource usage. The default stack is 4 services
+with ~350MB RAM, suitable for a $5/mo VPS. Additional features are opt-in via
+docker compose profiles.
+
+| Profile | Adds | RAM | Use case |
+|---|---|---|---|
+| (default) | redis, nginx, api, worker | ~350MB | Self-hosted, small fleet, <1k events/sec |
+| `--profile ha` | redis-replica + 3x sentinel | +150MB | Self-hosted HA without AWS ElastiCache |
+| `--profile otel` | otel-collector | +50MB | Route spans to your APM (Honeycomb/Datadog/Tempo) |
+| `--profile traces` | otel-collector + jaeger | +250MB | Local trace browsing UI |
+| `--profile all` | ha + traces | ~750MB | Full local dev with HA and trace visualization |
+
+```bash
+docker compose up                        # minimum (nginx + rate limiting)
+docker compose --profile ha up           # +Redis Sentinel for HA
+docker compose --profile otel up         # +OTLP export
+docker compose --profile traces up       # +Jaeger UI
+docker compose --profile all up          # everything
+```
+
+Trace storage (Jaeger / Tempo / Honeycomb / Datadog) is **always
+external** — Mandala produces spans; it doesn't host them. This keeps the
+core footprint flat regardless of trace volume.
 
 Provisions ElastiCache Redis (~$15/mo), two ECS Fargate tasks
 (`serve` + `worker`), ALB with HTTPS, Secrets Manager, IAM least-priv,
 and CloudWatch logs. **~$50-60/mo** for basic us-east-1 deployment.
 
 See [terraform/aws/README.md](terraform/aws/README.md).
-
-## GitHub Actions
-
-Daily fleet intelligence reports at 6:00 AM UTC. Report types:
-`cross_border_compliance`, `carrier_safety`. Output: Slack / file / stdout.
-30-day artifact retention.
-
-To enable, add `SAMSARA_API_KEY` (and optionally `SLACK_WEBHOOK_URL`) as
-GitHub secrets and turn on the workflow.
 
 ## Troubleshooting
 
