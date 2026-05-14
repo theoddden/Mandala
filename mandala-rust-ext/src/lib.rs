@@ -7,6 +7,7 @@ use constant_time_eq::constant_time_eq;
 use base64::{Engine as _, engine::general_purpose};
 use regex::Regex;
 use chrono::{DateTime, Utc, TimeZone};
+use serde_json::Value;
 use rand::Rng;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -92,9 +93,10 @@ fn verify_hmac_sha256(
 #[cfg(feature = "h3")]
 #[pyfunction]
 fn h3_hash(latitude: f64, longitude: f64, resolution: u32) -> PyResult<String> {
-    use h3ron::{H3Cell, Coordinate};
-    let coord = Coordinate::new(latitude, longitude);
-    let cell = H3Cell::from_coordinate(coord, resolution as u8)
+    use h3ron::H3Cell;
+    use geo::Point;
+    let point = Point::new(longitude, latitude);
+    let cell = H3Cell::from_point(point, resolution as u8)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
     Ok(cell.to_string())
 }
