@@ -29,11 +29,11 @@ from mandala.settings import get_settings
 
 # Try to import Rust-accelerated implementation
 try:
+    from mandala_rust_ext import float_to_bits as rust_float_to_bits
+    from mandala_rust_ext import geohash_fallback as rust_geohash_fallback
     from mandala_rust_ext import h3_hash as rust_h3_hash
     from mandala_rust_ext import h3_hash_time_bound as rust_h3_hash_time_bound
-    from mandala_rust_ext import geohash_fallback as rust_geohash_fallback
     from mandala_rust_ext import s2_hash_fallback as rust_s2_hash_fallback
-    from mandala_rust_ext import float_to_bits as rust_float_to_bits
 
     _RUST_EXT_AVAILABLE = True
 except ImportError:

@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.20", features = ["extension-module"] }
 sha2 = "0.10"
 hmac = "0.12"
-constant-time_eq = "0.3"
+constant_time_eq = "0.3"
 h3ron = { version = "0.16", optional = true }
 base64 = "0.21"
 hex = "0.4"
