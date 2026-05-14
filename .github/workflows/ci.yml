@@ -141,7 +141,8 @@ jobs:
     - name: Build Rust extension
       working-directory: ./mandala-rust-ext
       run: |
-        maturin develop --release
+        maturin build --release
+        pip install target/wheels/mandala_rust_ext-*.whl
 
     - name: Run tests with coverage
       env:
