@@ -188,7 +188,7 @@ class GeometricHashService:
             if _RUST_EXT_AVAILABLE:
                 event_time_str = event_time.isoformat() if event_time else None
                 return rust_s2_hash_fallback(latitude, longitude, event_time_str)
-            
+
             # Fallback to geohash-like encoding when s2geometry not available
             log.warning(
                 "s2_library_not_available",
@@ -207,7 +207,7 @@ class GeometricHashService:
         if _RUST_EXT_AVAILABLE:
             event_time_str = event_time.isoformat() if event_time else None
             return rust_geohash_fallback(latitude, longitude, event_time_str)
-        
+
         # Pure Python fallback
         # Simple geohash-like encoding
         lat_bits = _float_to_bits(latitude, 32)

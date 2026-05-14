@@ -1,6 +1,5 @@
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::types::PyDict;
 use pyo3::types::PyList;
 use sha2::{Digest, Sha256};
 use hmac::{Hmac, Mac};
@@ -8,8 +7,6 @@ use constant_time_eq::constant_time_eq;
 use base64::{Engine as _, engine::general_purpose};
 use regex::Regex;
 use chrono::{DateTime, Utc, TimeZone};
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use rand::Rng;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -95,8 +92,9 @@ fn verify_hmac_sha256(
 #[cfg(feature = "h3")]
 #[pyfunction]
 fn h3_hash(latitude: f64, longitude: f64, resolution: u32) -> PyResult<String> {
-    use h3ron::H3Cell;
-    let cell = H3Cell::from_lat_lng(latitude, longitude, resolution)
+    use h3ron::{H3Cell, Point};
+    let point = Point::new(longitude, latitude);
+    let cell = H3Cell::from_point(point, resolution as u8)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
     Ok(cell.to_string())
 }
@@ -174,6 +172,7 @@ impl LatchResult {
 /// Core Stator's Latch decision logic (synchronous, no I/O)
 /// Python handles Redis operations, Rust handles the decision logic
 #[pyfunction]
+#[pyo3(signature = (event_time_str, last_committed_time_str=None, tolerance_seconds))]
 fn stator_latch_check(
     event_time_str: &str,
     last_committed_time_str: Option<&str>,
@@ -199,7 +198,7 @@ fn stator_latch_check(
     }
 
     let last_committed = last_committed.unwrap();
-    let time_diff = (event_time - last_committed).num_seconds_f64();
+    let time_diff = (event_time - last_committed).num_seconds();
 
     // Check for duplicate (within tolerance)
     if time_diff.abs() <= tolerance_seconds {
@@ -499,6 +498,7 @@ fn normalize_country_code(country: &str) -> String {
 
 /// Check if country is in allowed regions
 #[pyfunction]
+#[pyo3(signature = (country_code=None, allowed_regions))]
 fn data_residency_check(country_code: Option<&str>, allowed_regions: Vec<String>) -> PyResult<bool> {
     match country_code {
         None => Ok(true),  // No country found, allow through
@@ -526,7 +526,7 @@ fn parse_timestamp_to_datetime(timestamp_str: &str) -> PyResult<DateTime<Utc>> {
     // Try epoch seconds (and milliseconds)
     if let Ok(epoch) = timestamp_str.parse::<f64>() {
         let epoch = if epoch > 1e12 { epoch / 1000.0 } else { epoch };
-        return Ok(Utc.timestamp_opt(epoch as i64).unwrap());
+        return Ok(Utc.timestamp_opt(epoch as i64, 0).unwrap());
     }
 
     // Try ISO-8601
@@ -630,8 +630,9 @@ impl BufferedEvent {
     }
 }
 
-/// Check if event should be buffered or released (logic only, no I/O)
+/// Check if buffered event should be held (event-time determinism)
 #[pyfunction]
+#[pyo3(signature = (event_time_str, next_expected_str=None, gap_threshold_seconds))]
 fn reorder_buffer_should_buffer(
     event_time_str: &str,
     next_expected_str: Option<&str>,
@@ -645,7 +646,7 @@ fn reorder_buffer_should_buffer(
     }
 
     let next_expected = parse_timestamp_to_datetime(next_expected_str.unwrap())?;
-    let time_gap = (event_time - next_expected).num_seconds_f64();
+    let time_gap = (event_time - next_expected).num_seconds();
 
     // Event is in-order and close enough - release immediately
     if time_gap >= 0.0 && time_gap <= gap_threshold_seconds {
@@ -668,7 +669,7 @@ fn reorder_buffer_is_ready(
     let next_expected = parse_timestamp_to_datetime(next_expected_str)?;
     let current_time = parse_timestamp_to_datetime(current_time_str)?;
 
-    let wait_time = (current_time - buffered_time).num_seconds_f64();
+    let wait_time = (current_time - buffered_time).num_seconds();
     let is_in_order = buffered_time >= next_expected;
     let is_expired = wait_time >= max_wait_seconds;
 

@@ -34,6 +34,7 @@ from mandala.views.base import MaterializedView
 # Try to import Rust-accelerated graph result decoding
 try:
     from mandala_rust_ext import decode_graph_result
+
     _RUST_GRAPH_AVAILABLE = True
 except ImportError:
     _RUST_GRAPH_AVAILABLE = False
@@ -227,7 +228,7 @@ def _decode_graph_result(raw: Any) -> list[dict[str, Any]]:
         except Exception:
             # Fall back to Python if Rust fails
             log.warning("graph.decode_rust_failed", falling_back="python")
-    
+
     # Pure Python fallback
     if not raw or len(raw) < 2:
         return []
