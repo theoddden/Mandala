@@ -354,13 +354,16 @@ MANDALA_ZK_VERIFICATION_KEY=/opt/mandala/zk/keys/cold_chain_breach.vk
 
 ## Rust Acceleration Layer
 
-Mandala includes an optional Rust extension (`mandala-rust-ext`) that accelerates critical cryptographic operations for high-throughput scenarios (10k+ events/sec). The extension is optional - Mandala falls back to pure Python if not installed.
+Mandala includes an optional Rust extension (`mandala-rust-ext`) that accelerates critical cryptographic and data processing operations for high-throughput scenarios (10k+ events/sec). The extension is optional - Mandala falls back to pure Python if not installed.
 
 **Accelerated operations:**
 
 - **SHA256 hashing** - trace_id, span_id, and idempotency key derivation
 - **HMAC-SHA256 webhook signature verification** - constant-time comparison for replay protection
 - **H3 geometric hashing** - spatial idempotency for event-time determinism (optional feature)
+- **Bitmap URNs conversion** - zero-copy bit manipulation for bitmap views (2-5x faster)
+- **Graph result decoding** - RedisGraph/FalkorDB response parsing with automatic byte decoding
+- **Geometric hash fallbacks** - float-to-bits conversion, geohash and S2 hash implementations when geometry libraries are unavailable
 
 **Installation:**
 
@@ -370,20 +373,40 @@ pip install 'mandala[rust]'
 
 # Or build from source
 cd mandala-rust-ext
-maturin develop --release
+maturin build --release
+pip install target/wheels/mandala_rust_ext-*.whl
 ```
 
 **Performance impact:**
 
 - 2-5x faster cryptographic operations vs pure Python
+- 2-5x faster bitmap bit manipulation
 - Zero-copy memory handling for large event batches
 - Memory-safe Rust implementation with no FFI overhead
+
+**CI/CD Integration:**
+
+The Rust extension is built and tested automatically in the CI/CD pipeline:
+- Rust build job compiles the extension with maturin
+- Rust test job runs unit tests and clippy linting
+- Python test job installs the compiled wheel before running tests
+- Rust linting (clippy and fmt) integrated into the lint job
 
 **Verification:**
 
 ```python
 import mandala_rust_ext
 # If this imports successfully, Rust acceleration is enabled
+
+# Check specific functions
+from mandala_rust_ext import (
+    sha256_hex,
+    h3_hash,
+    bitmap_extract_offsets,
+    decode_graph_result,
+    geohash_fallback,
+    s2_hash_fallback,
+)
 ```
 
 ## Compliance
