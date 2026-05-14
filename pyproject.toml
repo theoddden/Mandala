@@ -52,7 +52,7 @@ sink = [
 ]
 rust = [
     # Rust-accelerated cryptographic and geometric operations
-    "mandala-rust-ext>=0.1.0",
+    "mandala-rust-ext>=0.2.0",
 ]
 dev = [
     "ruff>=0.4",

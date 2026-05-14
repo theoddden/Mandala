@@ -31,6 +31,9 @@ from mandala.settings import get_settings
 try:
     from mandala_rust_ext import h3_hash as rust_h3_hash
     from mandala_rust_ext import h3_hash_time_bound as rust_h3_hash_time_bound
+    from mandala_rust_ext import geohash_fallback as rust_geohash_fallback
+    from mandala_rust_ext import s2_hash_fallback as rust_s2_hash_fallback
+    from mandala_rust_ext import float_to_bits as rust_float_to_bits
 
     _RUST_EXT_AVAILABLE = True
 except ImportError:
@@ -181,6 +184,11 @@ class GeometricHashService:
             return hashlib.sha256(s2_cell_str.encode()).hexdigest()[:16]
 
         except ImportError:
+            # Fallback to Rust-accelerated implementation if available
+            if _RUST_EXT_AVAILABLE:
+                event_time_str = event_time.isoformat() if event_time else None
+                return rust_s2_hash_fallback(latitude, longitude, event_time_str)
+            
             # Fallback to geohash-like encoding when s2geometry not available
             log.warning(
                 "s2_library_not_available",
@@ -195,6 +203,12 @@ class GeometricHashService:
         event_time: datetime | None = None,
     ) -> str:
         """Fallback to simple geohash-based encoding."""
+        # Use Rust-accelerated implementation if available
+        if _RUST_EXT_AVAILABLE:
+            event_time_str = event_time.isoformat() if event_time else None
+            return rust_geohash_fallback(latitude, longitude, event_time_str)
+        
+        # Pure Python fallback
         # Simple geohash-like encoding
         lat_bits = _float_to_bits(latitude, 32)
         lon_bits = _float_to_bits(longitude, 32)

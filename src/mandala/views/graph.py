@@ -31,6 +31,13 @@ from mandala.core.events.envelope import MandalaEvent
 from mandala.core.events.types import EventType
 from mandala.views.base import MaterializedView
 
+# Try to import Rust-accelerated graph result decoding
+try:
+    from mandala_rust_ext import decode_graph_result
+    _RUST_GRAPH_AVAILABLE = True
+except ImportError:
+    _RUST_GRAPH_AVAILABLE = False
+
 log = structlog.get_logger(__name__)
 
 GRAPH_NAME = "mandala"
@@ -213,6 +220,15 @@ def _decode_graph_result(raw: Any) -> list[dict[str, Any]]:
     Response format is ``[header, rows, statistics]`` where ``header`` is a
     list of column descriptors and ``rows`` is a list of lists.
     """
+    # Use Rust-accelerated decoding if available
+    if _RUST_GRAPH_AVAILABLE:
+        try:
+            return decode_graph_result(raw)
+        except Exception:
+            # Fall back to Python if Rust fails
+            log.warning("graph.decode_rust_failed", falling_back="python")
+    
+    # Pure Python fallback
     if not raw or len(raw) < 2:
         return []
     header = raw[0]

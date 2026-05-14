@@ -676,6 +676,226 @@ fn reorder_buffer_is_ready(
 }
 
 // ============================================================================
+// BITMAP URNs CONVERSION - Bit manipulation for bitmap view (NO I/O)
+// ============================================================================
+
+/// Extract set bit offsets from a byte array and return as list of integers
+/// 
+/// This function iterates through each byte in the bitmap and extracts the offsets
+/// of set bits (bits with value 1). Each byte represents 8 bits, and the offset is
+/// calculated as (byte_index * 8 + bit_position).
+/// 
+/// # Arguments
+/// * `bitmap_bytes` - A byte slice representing the bitmap
+/// 
+/// # Returns
+/// A vector of u32 offsets where bits are set
+/// 
+/// # Example
+/// ```rust
+/// let bitmap = vec![0b10100000, 0b00001000];
+/// let offsets = bitmap_extract_offsets(&bitmap);
+/// assert_eq!(offsets, vec![0, 2, 11]);
+/// ```
+#[pyfunction]
+fn bitmap_extract_offsets(bitmap_bytes: &[u8]) -> PyResult<Vec<u32>> {
+    let mut offsets = Vec::new();
+    for (byte_idx, &byte) in bitmap_bytes.iter().enumerate() {
+        if byte == 0 {
+            continue;
+        }
+        for bit in 0..8 {
+            if byte & (1 << (7 - bit)) != 0 {
+                offsets.push((byte_idx * 8 + bit) as u32);
+            }
+        }
+    }
+    Ok(offsets)
+}
+
+// ============================================================================
+// GRAPH RESULT DECODING - RedisGraph/FalkorDB response parsing (NO I/O)
+// ============================================================================
+
+/// Decode a GRAPH.QUERY response into a list of row dicts
+/// 
+/// This function parses the raw response from RedisGraph or FalkorDB GRAPH.QUERY
+/// commands and converts it into a list of Python dictionaries. The response format
+/// is typically [header, rows, statistics] where header contains column metadata
+/// and rows contains the actual data.
+/// 
+/// # Arguments
+/// * `raw` - A Python list containing the raw GRAPH.QUERY response
+/// 
+/// # Returns
+/// A vector of Python dictionaries, one per row, with column names as keys
+/// 
+/// # Example
+/// ```python
+/// response = [["id", "name"], [1, "Alice"], [2, "Bob"]]
+/// rows = decode_graph_result(response)
+/// # Returns: [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+/// ```
+#[pyfunction]
+fn decode_graph_result(raw: &PyAny) -> PyResult<Vec<PyObject>> {
+    Python::with_gil(|py| {
+        // Extract header and rows from the raw response
+        let response_list: &PyList = raw.downcast()?;
+        if response_list.len() < 2 {
+            return Ok(Vec::new());
+        }
+
+        let header = response_list.get_item(0)?;
+        let rows = response_list.get_item(1)?;
+        let header_list: &PyList = header.downcast()?;
+        let rows_list: &PyList = rows.downcast()?;
+
+        // Extract column names from header
+        let mut col_names: Vec<String> = Vec::new();
+        for h in header_list.iter() {
+            let h_item: &PyAny = h;
+            if let Ok(h_list) = h_item.downcast::<PyList>() {
+                // Each header entry is [type, name] in RedisGraph responses
+                if h_list.len() >= 2 {
+                    if let Ok(name) = h_list.get_item(1) {
+                        let name_str: String = name.extract()?;
+                        col_names.push(name_str);
+                    }
+                }
+            } else {
+                // Fallback: treat as string directly
+                let name_str: String = h_item.extract()?;
+                col_names.push(name_str);
+            }
+        }
+
+        // Build row dicts
+        let mut out: Vec<PyObject> = Vec::new();
+        for row in rows_list.iter() {
+            let row_list: &PyList = row.downcast()?;
+            let row_dict = pyo3::types::PyDict::new(py);
+            
+            for (i, col) in col_names.iter().enumerate() {
+                if i < row_list.len() {
+                    if let Ok(val) = row_list.get_item(i) {
+                        let val_any: &PyAny = val;
+                        // Decode bytes to string if needed
+                        let decoded = if let Ok(bytes_val) = val_any.downcast::<PyBytes>() {
+                            let bytes = bytes_val.as_bytes();
+                            String::from_utf8_lossy(bytes).to_string()
+                        } else {
+                            val_any.extract()?
+                        };
+                        row_dict.set_item(col, decoded)?;
+                    }
+                }
+            }
+            out.push(row_dict.into());
+        }
+
+        Ok(out)
+    })
+}
+
+// ============================================================================
+// GEOMETRIC HASH FALLBACKS - S2 and geohash implementations (NO I/O)
+// ============================================================================
+
+/// Convert a float to an integer representation for hashing
+/// 
+/// This function converts a 64-bit float to an integer representation by
+/// extracting the raw bytes and shifting them. This is useful for creating
+/// deterministic hash values from floating-point coordinates.
+/// 
+/// # Arguments
+/// * `value` - The float value to convert
+/// * `bits` - The number of bits to extract (typically 32)
+/// 
+/// # Returns
+/// The integer representation of the float
+/// 
+/// # Example
+/// ```rust
+/// let bits = float_to_bits(37.7749, 32);
+/// ```
+#[pyfunction]
+fn float_to_bits(value: f64, bits: u32) -> PyResult<u64> {
+    let packed = value.to_be_bytes();
+    let int_val = u64::from_be_bytes(packed);
+    Ok(int_val >> (64 - bits))
+}
+
+/// Compute geohash-like encoding from lat/lon
+/// 
+/// This is a fallback implementation when the H3 or S2 geometry libraries
+/// are not available. It converts latitude and longitude to a simple
+/// hex-encoded hash, optionally binding it to an event timestamp for
+/// temporal determinism.
+/// 
+/// # Arguments
+/// * `latitude` - Latitude in decimal degrees
+/// * `longitude` - Longitude in decimal degrees
+/// * `event_time_str` - Optional ISO format timestamp for temporal binding
+/// 
+/// # Returns
+/// A 16-character hex string representing the geometric hash
+/// 
+/// # Example
+/// ```rust
+/// let hash = geohash_fallback(37.7749, -122.4194, Some("2024-01-01T00:00:00Z"));
+/// ```
+#[pyfunction]
+fn geohash_fallback(latitude: f64, longitude: f64, event_time_str: Option<&str>) -> PyResult<String> {
+    let lat_bits = float_to_bits(latitude, 32)?;
+    let lon_bits = float_to_bits(longitude, 32)?;
+    let combined = format!("{:08x}{:08x}", lat_bits, lon_bits);
+    
+    // Bind to event time if provided
+    let combined = if let Some(event_time) = event_time_str {
+        format!("{}:{}", combined, event_time)
+    } else {
+        combined
+    };
+    
+    sha256_hex(combined.as_bytes()).map(|hash| hash[..16].to_string())
+}
+
+/// Compute S2-like hash (simplified implementation)
+/// 
+/// This is a fallback when the s2geometry library is not available.
+/// It provides a simplified S2-style hash by encoding lat/lon with
+/// an "s2:" prefix, then hashing with SHA256 and truncating to 16 chars.
+/// 
+/// # Arguments
+/// * `latitude` - Latitude in decimal degrees
+/// * `longitude` - Longitude in decimal degrees
+/// * `event_time_str` - Optional ISO format timestamp for temporal binding
+/// 
+/// # Returns
+/// A 16-character hex string representing the S2-style hash
+/// 
+/// # Example
+/// ```rust
+/// let hash = s2_hash_fallback(37.7749, -122.4194, None);
+/// ```
+#[pyfunction]
+fn s2_hash_fallback(latitude: f64, longitude: f64, event_time_str: Option<&str>) -> PyResult<String> {
+    // Simple lat/lon encoding as fallback
+    let lat_bits = float_to_bits(latitude, 32)?;
+    let lon_bits = float_to_bits(longitude, 32)?;
+    let s2_cell_str = format!("s2:{:08x}{:08x}", lat_bits, lon_bits);
+    
+    // Bind to event time if provided
+    let combined = if let Some(event_time) = event_time_str {
+        format!("{}:{}", s2_cell_str, event_time)
+    } else {
+        s2_cell_str
+    };
+    
+    sha256_hex(combined.as_bytes()).map(|hash| hash[..16].to_string())
+}
+
+// ============================================================================
 // MODULE REGISTRATION
 // ============================================================================
 
@@ -723,5 +943,114 @@ fn mandala_rust_ext(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(reorder_buffer_should_buffer, m)?)?;
     m.add_function(wrap_pyfunction!(reorder_buffer_is_ready, m)?)?;
 
+    // Bitmap URNs Conversion
+    m.add_function(wrap_pyfunction!(bitmap_extract_offsets, m)?)?;
+
+    // Graph Result Decoding
+    m.add_function(wrap_pyfunction!(decode_graph_result, m)?)?;
+
+    // Geometric Hash Fallbacks
+    m.add_function(wrap_pyfunction!(float_to_bits, m)?)?;
+    m.add_function(wrap_pyfunction!(geohash_fallback, m)?)?;
+    m.add_function(wrap_pyfunction!(s2_hash_fallback, m)?)?;
+
     Ok(())
+}
+
+// ============================================================================
+// UNIT TESTS FOR NEW FUNCTIONS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bitmap_extract_offsets_empty() {
+        let bitmap = vec![0u8, 0u8, 0u8];
+        let offsets = bitmap_extract_offsets(&bitmap).unwrap();
+        assert!(offsets.is_empty());
+    }
+
+    #[test]
+    fn test_bitmap_extract_offsets_single_byte() {
+        let bitmap = vec![0b10100000u8];
+        let offsets = bitmap_extract_offsets(&bitmap).unwrap();
+        assert_eq!(offsets, vec![0, 2]);
+    }
+
+    #[test]
+    fn test_bitmap_extract_offsets_multiple_bytes() {
+        let bitmap = vec![0b10100000u8, 0b00001000u8];
+        let offsets = bitmap_extract_offsets(&bitmap).unwrap();
+        assert_eq!(offsets, vec![0, 2, 11]);
+    }
+
+    #[test]
+    fn test_bitmap_extract_offsets_all_bits_set() {
+        let bitmap = vec![0b11111111u8];
+        let offsets = bitmap_extract_offsets(&bitmap).unwrap();
+        assert_eq!(offsets, vec![0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn test_float_to_bits() {
+        let bits = float_to_bits(37.7749, 32).unwrap();
+        assert!(bits > 0);
+    }
+
+    #[test]
+    fn test_float_to_bits_negative() {
+        let bits = float_to_bits(-122.4194, 32).unwrap();
+        assert!(bits > 0);
+    }
+
+    #[test]
+    fn test_geohash_fallback() {
+        let hash = geohash_fallback(37.7749, -122.4194, None).unwrap();
+        assert_eq!(hash.len(), 16);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_geohash_fallback_with_time() {
+        let hash = geohash_fallback(37.7749, -122.4194, Some("2024-01-01T00:00:00Z")).unwrap();
+        assert_eq!(hash.len(), 16);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_s2_hash_fallback() {
+        let hash = s2_hash_fallback(37.7749, -122.4194, None).unwrap();
+        assert_eq!(hash.len(), 16);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_s2_hash_fallback_with_time() {
+        let hash = s2_hash_fallback(37.7749, -122.4194, Some("2024-01-01T00:00:00Z")).unwrap();
+        assert_eq!(hash.len(), 16);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_geohash_deterministic() {
+        let hash1 = geohash_fallback(37.7749, -122.4194, None).unwrap();
+        let hash2 = geohash_fallback(37.7749, -122.4194, None).unwrap();
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_s2_hash_deterministic() {
+        let hash1 = s2_hash_fallback(37.7749, -122.4194, None).unwrap();
+        let hash2 = s2_hash_fallback(37.7749, -122.4194, None).unwrap();
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_geohash_different_coords() {
+        let hash1 = geohash_fallback(37.7749, -122.4194, None).unwrap();
+        let hash2 = geohash_fallback(40.7128, -74.0060, None).unwrap();
+        assert_ne!(hash1, hash2);
+    }
 }

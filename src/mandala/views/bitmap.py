@@ -18,6 +18,13 @@ from mandala.core.events.types import EventType
 from mandala.core.state import StateStore
 from mandala.views.base import MaterializedView
 
+# Try to import Rust-accelerated bitmap operations
+try:
+    from mandala_rust_ext import bitmap_extract_offsets
+    _RUST_BITMAP_AVAILABLE = True
+except ImportError:
+    _RUST_BITMAP_AVAILABLE = False
+
 log = structlog.get_logger(__name__)
 
 ID_MAP_KEY = "mandala:view:bm:urn_to_id"
@@ -169,13 +176,20 @@ class BitmapView(MaterializedView):
             return []
         if isinstance(raw, str):
             raw = raw.encode("latin-1")
-        offsets: list[int] = []
-        for byte_idx, byte in enumerate(raw):
-            if byte == 0:
-                continue
-            for bit in range(8):
-                if byte & (1 << (7 - bit)):
-                    offsets.append(byte_idx * 8 + bit)
+        
+        # Use Rust-accelerated bitmap extraction if available
+        if _RUST_BITMAP_AVAILABLE:
+            offsets = bitmap_extract_offsets(raw)
+        else:
+            # Pure Python fallback
+            offsets: list[int] = []
+            for byte_idx, byte in enumerate(raw):
+                if byte == 0:
+                    continue
+                for bit in range(8):
+                    if byte & (1 << (7 - bit)):
+                        offsets.append(byte_idx * 8 + bit)
+        
         if not offsets:
             return []
         urns = await self._r.hmget(REVERSE_MAP_KEY, *[str(o) for o in offsets])  # type: ignore[attr-defined]
