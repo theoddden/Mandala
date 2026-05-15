@@ -31,11 +31,10 @@ ark-ff = { version = "0.4", optional = true }
 ark-ec = { version = "0.4", optional = true }
 ark-poly = { version = "0.4", optional = true }
 ark-std = { version = "0.4", optional = true, default-features = false, features = ["std"] }
-ark-nonnative = { version = "0.4", optional = true }
 
 [features]
 default = ["h3"]
 h3 = ["dep:h3ron"]
 zk = ["dep:ark-bls12-381", "dep:ark-groth16", "dep:ark-relations", 
       "dep:ark-serialize", "dep:ark-ff", "dep:ark-ec", "dep:ark-poly", 
-      "dep:ark-std", "dep:ark-nonnative"]
+      "dep:ark-std"]

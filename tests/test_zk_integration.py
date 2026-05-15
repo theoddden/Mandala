@@ -3,27 +3,28 @@
 Tests the integration between the Python ZK module and the Rust backend.
 """
 
-import pytest
-import json
 from datetime import datetime, UTC
 from unittest.mock import Mock, patch
+
+import json
+import pytest
+
+from mandala.core.events.envelope import MandalaEvent
+from mandala.core.zk.circuits import ColdChainBreachProof, ZKCircuit
+from mandala.core.zk.verifier import ZKVerifier
 
 # Try to import Rust backend
 try:
     from mandala_rust_ext.zk import (
-        zk_generate_keys_breach_scenario,
-        zk_load_verification_key,
-        zk_load_proving_key,
         ZKKeyCache,
+        zk_generate_keys_breach_scenario,
+        zk_load_proving_key,
+        zk_load_verification_key,
     )
     RUST_BACKEND_AVAILABLE = True
 except ImportError:
     RUST_BACKEND_AVAILABLE = False
     pytest.skip("Rust backend not available", allow_module_level=True)
-
-from mandala.core.zk.circuits import ColdChainBreachProof, ZKCircuit
-from mandala.core.zk.verifier import ZKVerifier
-from mandala.core.events.envelope import MandalaEvent
 
 
 @pytest.mark.skipif(not RUST_BACKEND_AVAILABLE, reason="Rust backend not available")
