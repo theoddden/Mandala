@@ -122,16 +122,21 @@ Mandala includes an optional Rust extension (`mandala-rust-ext`) that accelerate
 - **Bitmap URNs conversion** - zero-copy bit manipulation for bitmap views (2-5x faster)
 - **Graph result decoding** - RedisGraph/FalkorDB response parsing with automatic byte decoding
 - **Geometric hash fallbacks** - float-to-bits conversion, geohash and S2 hash implementations when geometry libraries are unavailable
+- **ZK-SNARK proof generation** - cold-chain breach verification with Groth16 (optional feature)
+- **ZK-SNARK proof verification** - native Rust verification with no subprocess overhead
 
 **Installation:**
 
 ```bash
-# Install with Rust acceleration
+# Install with Rust acceleration (includes ZK support)
 pip install 'mandala[rust]'
 
-# Or build from source
+# Or install without ZK features
+pip install 'mandala[rust]'  # ZK is opt-in via feature flag
+
+# Build from source with ZK support
 cd mandala-rust-ext
-maturin build --release
+maturin build --release --features zk
 pip install target/wheels/mandala_rust_ext-*.whl
 ```
 
@@ -139,8 +144,39 @@ pip install target/wheels/mandala_rust_ext-*.whl
 
 - 2-5x faster cryptographic operations vs pure Python
 - 2-5x faster bitmap bit manipulation
+- 10-100x faster ZK proof generation vs subprocess calls
 - Zero-copy memory handling for large event batches
 - Memory-safe Rust implementation with no FFI overhead
+
+**ZK-SNARK Features (Optional):**
+
+Mandala includes optional zero-knowledge proof capabilities for cold-chain breach verification:
+
+- **Cold-chain breach circuits** - R1CS constraints using arkworks-rs
+- **Trusted setup ceremony** - MPC protocol for production key generation
+- **Key caching** - In-memory caching for performance
+- **Python integration** - PyO3 bindings with subprocess fallback
+- **MPC ceremony documentation** - Production-ready ceremony participation guide
+- **Security audit notes** - Comprehensive security requirements for production
+
+**ZK Installation:**
+
+```bash
+# Build with ZK support
+cd mandala-rust-ext
+maturin build --release --features zk
+pip install target/wheels/mandala_rust_ext-*.whl
+
+# Generate proving/verification keys (development only)
+python -c "from mandala_rust_ext.zk import zk_generate_keys_breach_scenario; zk_generate_keys_breach_scenario('/opt/mandala/zk/keys/cold_chain_breach.pk', '/opt/mandala/zk/keys/cold_chain_breach.vk')"
+
+# For production: run MPC ceremony
+python -c "from mandala_rust_ext.zk import zk_mpc_simulate_ceremony; zk_mpc_simulate_ceremony(...)"
+```
+
+**ZK Documentation:**
+- `mandala-rust-ext/ZK_MPC_CEREMONY.md` - MPC ceremony participation guide
+- `mandala-rust-ext/ZK_SECURITY_AUDIT.md` - Security audit requirements
 
 ## Compliance
 

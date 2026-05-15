@@ -119,6 +119,8 @@ pip install -e './mandala-rust-ext[zk]'
 
 ### ZK-SNARK Operations (requires `zk` feature)
 
+#### Proof Generation and Verification
+
 - **`zk_generate_cold_chain_proof(event_json, declared_min_c, declared_max_c, breach_timestamp, proving_key_path)`** - Generate Groth16 proof for cold-chain breach
   - Proves temperature breach without revealing sensitive sensor data
   - Uses arkworks-rs (ark-groth16) for native Rust proving
@@ -134,6 +136,8 @@ pip install -e './mandala-rust-ext[zk]'
   - Additional validation of timestamp range
   - Ensures proof timestamp is within expected bounds
   - Useful for insurance/customs verification
+
+#### Key Management
 
 - **`zk_load_verification_key(path)`** - Load verification key from file
   - Efficient key loading with optional caching
@@ -152,6 +156,41 @@ pip install -e './mandala-rust-ext[zk]'
   - `clear()` - Clear the cache
   - `stats()` - Get cache statistics (vk_count, pk_count)
 
+#### Trusted Setup and MPC Ceremony
+
+- **`zk_generate_keys(event_json, declared_min_c, declared_max_c, breach_timestamp, pk_path, vk_path)`** - Generate proving and verification keys
+  - Development key generation using OS RNG
+  - WARNING: Not for production - requires MPC ceremony
+  - Saves keys to specified paths
+
+- **`zk_generate_keys_breach_scenario(pk_path, vk_path)`** - Generate keys for breach scenario (convenience function)
+  - Development-only key generation
+  - Uses example cold-chain breach event data
+  - WARNING: Not for production use
+
+- **`zk_mpc_ceremony_new(required_participants)`** - Create new MPC ceremony
+  - Initialize multi-party computation ceremony
+  - Returns `MPCCeremonyWrapper` for ceremony management
+  - Used for production trusted setup
+
+- **`zk_mpc_generate_contribution()`** - Generate random contribution for MPC participant
+  - Generates 32-byte random contribution
+  - Used by ceremony participants
+
+- **`zk_mpc_simulate_ceremony(num_participants, event_json, declared_min_c, declared_max_c, breach_timestamp, pk_path, vk_path)`** - Simulate full MPC ceremony
+  - Testing function for ceremony protocol
+  - WARNING: For testing only, not production
+  - Simulates multiple participants contributing
+
+- **`MPCCeremonyWrapper` class** - Python wrapper for MPC ceremony
+  - `add_contribution(participant_id, randomness)` - Add participant contribution
+  - `generate_keys(event_json, declared_min_c, declared_max_c, breach_timestamp, pk_path, vk_path)` - Generate keys from ceremony
+  - `is_complete()` - Check if ceremony is complete
+  - `required_participants()` - Get required participant count
+  - `current_participants()` - Get current participant count
+
+#### Data Structures
+
 - **`ColdChainBreachProof` class** - ZK proof container
   - `proof` - Proof bytes (256 bytes for Groth16)
   - `public_inputs` - Public inputs as JSON string
@@ -161,6 +200,29 @@ pip install -e './mandala-rust-ext[zk]'
   - `proof_hex()` - Get proof as hex string
   - `verification_key_hex()` - Get verification key as hex string
   - `to_dict()` - Convert to Python dictionary
+
+#### Circuit Implementation
+
+The ZK module implements cryptographic constraints using arkworks-rs:
+
+- **Bit decomposition** - Decompose field elements into bits for range proofs
+- **Boolean enforcement** - Ensure variables are 0 or 1
+- **Comparison circuits** - Implement <, >, <=, >= using bitwise operations
+- **Range proofs** - Validate values within specified ranges
+- **Cold-chain breach circuit** - R1CS constraints for temperature breach verification
+
+#### Documentation
+
+- **`ZK_MPC_CEREMONY.md`** - MPC ceremony participation guide
+  - Step-by-step ceremony execution
+  - Security requirements for participants
+  - Production deployment recommendations
+
+- **`ZK_SECURITY_AUDIT.md`** - Security audit requirements
+  - Circuit correctness audit checklist
+  - Implementation audit requirements
+  - Production deployment security guidelines
+  - Third-party audit recommendations
 
 ## Performance
 
