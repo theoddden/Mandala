@@ -21,6 +21,12 @@ from mandala.core.state import StateStore
 log = structlog.get_logger(__name__)
 
 
+def _chunked(iterable, size):
+    """Yield successive chunks from an iterable."""
+    for i in range(0, len(iterable), size):
+        yield iterable[i:i + size]
+
+
 class ReplayStatus(StrEnum):
     """Status of a replay operation."""
 
@@ -46,6 +52,7 @@ class ReplayConfig:
     count: int = 1000
     max_failures: int = 10
     speed_multiplier: float = 1.0
+    batch_size: int = 100  # Batch size for parallel replay
 
     def __post_init__(self) -> None:
         """Handle backward compatibility for parameter names."""
@@ -109,35 +116,53 @@ class EventReplay:
             events = await self._event_log.read_range(from_dt, to_dt)
             stats["events_read"] = len(events)
 
-            for event in events:
-                try:
-                    # Filter by detector if specified
-                    if detector_filter:
-                        # Check if event was emitted by this detector
-                        # This requires tracking detector name in event metadata
-                        # For now, skip filtering if not available
-                        pass
+            # Process events in batches for parallel projection
+            async def replay_batch(events_batch):
+                batch_stats = {"processed": 0, "skipped": 0, "errors": 0}
+                from mandala.projection import project
 
-                    if dry_run:
-                        log.debug("replay.dry_run", event_id=event.id, event_type=event.type)
-                        stats["events_skipped"] += 1
-                        continue
+                for event in events_batch:
+                    try:
+                        # Filter by detector if specified
+                        if detector_filter:
+                            # Check if event was emitted by this detector
+                            # This requires tracking detector name in event metadata
+                            # For now, skip filtering if not available
+                            pass
 
-                    # Re-project event into state
-                    # Import here to avoid circular dependency
-                    from mandala.projection import project
+                        if dry_run:
+                            log.debug("replay.dry_run", event_id=event.id, event_type=event.type)
+                            batch_stats["skipped"] += 1
+                            continue
 
-                    await project(event, self._state)
-                    stats["events_processed"] += 1
+                        # Re-project event into state
+                        await project(event, self._state)
+                        batch_stats["processed"] += 1
 
-                except Exception as exc:
-                    log.exception(
-                        "replay.event_failed",
-                        event_id=event.id,
-                        event_type=event.type,
-                        error=str(exc),
-                    )
+                    except Exception as exc:
+                        log.exception(
+                            "replay.event_failed",
+                            event_id=event.id,
+                            event_type=event.type,
+                            error=str(exc),
+                        )
+                        batch_stats["errors"] += 1
+                return batch_stats
+
+            # Process batches in parallel
+            batch_results = await asyncio.gather(
+                *[replay_batch(batch) for batch in _chunked(events, 100)],
+                return_exceptions=True,
+            )
+
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    log.exception("replay.batch_failed", error=str(result))
                     stats["errors"] += 1
+                elif isinstance(result, dict):
+                    stats["events_processed"] += result["processed"]
+                    stats["events_skipped"] += result["skipped"]
+                    stats["errors"] += result["errors"]
 
             log.info("replay.completed", stats=stats)
             return stats
@@ -182,26 +207,45 @@ class EventReplay:
             events = await self._event_log.read_entity(entity_urn, from_dt, to_dt)
             stats["events_read"] = len(events)
 
-            for event in events:
-                try:
-                    if dry_run:
-                        log.debug("replay.dry_run", event_id=event.id, event_type=event.type)
-                        stats["events_skipped"] += 1
-                        continue
+            # Process events in batches for parallel projection
+            async def replay_batch(events_batch):
+                batch_stats = {"processed": 0, "skipped": 0, "errors": 0}
+                from mandala.projection import project
 
-                    from mandala.projection import project
+                for event in events_batch:
+                    try:
+                        if dry_run:
+                            log.debug("replay.dry_run", event_id=event.id, event_type=event.type)
+                            batch_stats["skipped"] += 1
+                            continue
 
-                    await project(event, self._state)
-                    stats["events_processed"] += 1
+                        await project(event, self._state)
+                        batch_stats["processed"] += 1
 
-                except Exception as exc:
-                    log.exception(
-                        "replay.event_failed",
-                        event_id=event.id,
-                        event_type=event.type,
-                        error=str(exc),
-                    )
+                    except Exception as exc:
+                        log.exception(
+                            "replay.event_failed",
+                            event_id=event.id,
+                            event_type=event.type,
+                            error=str(exc),
+                        )
+                        batch_stats["errors"] += 1
+                return batch_stats
+
+            # Process batches in parallel
+            batch_results = await asyncio.gather(
+                *[replay_batch(batch) for batch in _chunked(events, 100)],
+                return_exceptions=True,
+            )
+
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    log.exception("replay.batch_failed", error=str(result))
                     stats["errors"] += 1
+                elif isinstance(result, dict):
+                    stats["events_processed"] += result["processed"]
+                    stats["events_skipped"] += result["skipped"]
+                    stats["errors"] += result["errors"]
 
             log.info("replay.entity_completed", stats=stats)
             return stats
@@ -242,7 +286,8 @@ async def replay_from_stream(
         messages = await redis.xrevrange(stream_name, count=count)  # type: ignore[attr-defined]
         stats["events_read"] = len(messages)
 
-        # Process in reverse order (oldest first)
+        # Convert messages to events (in reverse order for oldest first)
+        events = []
         for msg_id, fields in reversed(messages):
             try:
                 raw = fields.get(b"e") if isinstance(fields, dict) else fields.get("e")
@@ -251,24 +296,53 @@ async def replay_from_stream(
                     continue
 
                 event = MandalaEvent.from_json(raw)
-
-                if dry_run:
-                    log.debug("replay.dry_run", event_id=event.id, event_type=event.type)
-                    stats["events_skipped"] += 1
-                    continue
-
-                from mandala.projection import project
-
-                await project(event, state)
-                stats["events_processed"] += 1
-
+                events.append(event)
             except Exception as exc:
                 log.exception(
-                    "replay.event_failed",
+                    "replay.event_parse_failed",
                     msg_id=msg_id,
                     error=str(exc),
                 )
                 stats["errors"] += 1
+
+        # Process events in batches for parallel projection
+        async def replay_batch(events_batch):
+            batch_stats = {"processed": 0, "skipped": 0, "errors": 0}
+            from mandala.projection import project
+
+            for event in events_batch:
+                try:
+                    if dry_run:
+                        log.debug("replay.dry_run", event_id=event.id, event_type=event.type)
+                        batch_stats["skipped"] += 1
+                        continue
+
+                    await project(event, state)
+                    batch_stats["processed"] += 1
+
+                except Exception as exc:
+                    log.exception(
+                        "replay.event_failed",
+                        event_id=event.id,
+                        error=str(exc),
+                    )
+                    batch_stats["errors"] += 1
+            return batch_stats
+
+        # Process batches in parallel
+        batch_results = await asyncio.gather(
+            *[replay_batch(batch) for batch in _chunked(events, 100)],
+            return_exceptions=True,
+        )
+
+        for result in batch_results:
+            if isinstance(result, Exception):
+                log.exception("replay.batch_failed", error=str(result))
+                stats["errors"] += 1
+            elif isinstance(result, dict):
+                stats["events_processed"] += result["processed"]
+                stats["events_skipped"] += result["skipped"]
+                stats["errors"] += result["errors"]
 
         log.info("replay.from_stream_completed", stats=stats)
         return stats

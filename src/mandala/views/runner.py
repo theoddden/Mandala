@@ -95,7 +95,9 @@ async def _rebuild_views(r: object, views: list[MaterializedView]) -> None:
         "mandala:view:geo:*",
         "mandala:view:dead_zones",
     ]
-    for pattern in patterns:
+
+    async def delete_pattern(pattern: str) -> None:
+        """Delete keys matching a pattern in parallel."""
         try:
             keys = await r.keys(pattern)  # type: ignore[attr-defined]
             if keys:
@@ -103,6 +105,9 @@ async def _rebuild_views(r: object, views: list[MaterializedView]) -> None:
                 log.info("mandala.views.rebuild_deleted", pattern=pattern, count=len(keys))
         except Exception as exc:  # noqa: BLE001
             log.exception("mandala.views.rebuild_failed", pattern=pattern, error=str(exc))
+
+    # Delete all patterns in parallel
+    await asyncio.gather(*[delete_pattern(p) for p in patterns])
     log.info("mandala.views.rebuild_complete")
 
 
