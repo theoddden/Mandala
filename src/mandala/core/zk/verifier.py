@@ -23,6 +23,7 @@ try:
         zk_verify_cold_chain_proof,
         zk_verify_cold_chain_proof_with_timestamp_check,
     )
+
     RUST_BACKEND_AVAILABLE = True
     log.info("zk.rust_backend.enabled")
 except ImportError:
@@ -74,6 +75,7 @@ class ZKVerifier:
 
             # Convert public inputs to JSON
             import json
+
             public_inputs_json = json.dumps(proof.public_inputs)
 
             # Call Rust verification

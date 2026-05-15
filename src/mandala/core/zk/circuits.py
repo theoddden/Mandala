@@ -28,6 +28,7 @@ try:
         zk_generate_cold_chain_proof,
         zk_load_proving_key,
     )
+
     RUST_BACKEND_AVAILABLE = True
     log.info("zk.rust_backend.enabled")
 except ImportError:
@@ -116,7 +117,7 @@ class ZKCircuit:
                     breach_ts,
                     pk_path,
                 )
-                
+
                 # Convert Rust proof to Python format
                 return ColdChainBreachProof(
                     proof=proof.proof,
