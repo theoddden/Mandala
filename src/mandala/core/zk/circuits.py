@@ -3,7 +3,7 @@
 Provides async circuit construction for privacy-preserving verification
 of logistics events (cold-chain breaches, customs holds, etc.).
 
-Circuits are defined in Circom and compiled via snarkjs. This module
+Circuits are defined in Rust using arkworks-rs. This module
 provides the Python async interface for proof generation.
 """
 
@@ -21,6 +21,18 @@ import structlog
 from mandala.core.events.envelope import MandalaEvent
 
 log = structlog.get_logger(__name__)
+
+# Try to import Rust backend, fall back to subprocess
+try:
+    from mandala_rust_ext.zk import (
+        zk_generate_cold_chain_proof,
+        zk_load_proving_key,
+    )
+    RUST_BACKEND_AVAILABLE = True
+    log.info("zk.rust_backend.enabled")
+except ImportError:
+    RUST_BACKEND_AVAILABLE = False
+    log.warning("zk.rust_backend.unavailable", message="Falling back to subprocess calls")
 
 
 class ColdChainBreachProof(NamedTuple):
@@ -57,6 +69,7 @@ class ZKCircuit:
         declared_min_c: float,
         declared_max_c: float,
         breach_timestamp: datetime,
+        pk_path: str = "/opt/mandala/zk/keys/cold_chain_breach.pk",
         vk_path: str = "/opt/mandala/zk/keys/cold_chain_breach.vk",
     ) -> ColdChainBreachProof:
         """
@@ -73,6 +86,79 @@ class ZKCircuit:
 
         Runs in background task to avoid blocking event pipeline.
         """
+        # Use Rust backend if available
+        if RUST_BACKEND_AVAILABLE:
+            return await self._build_with_rust(declared_min_c, declared_max_c, breach_timestamp, pk_path)
+        else:
+            return await self._build_with_subprocess(declared_min_c, declared_max_c, breach_timestamp, pk_path, vk_path)
+
+    async def _build_with_rust(
+        self,
+        declared_min_c: float,
+        declared_max_c: float,
+        breach_timestamp: datetime,
+        pk_path: str,
+    ) -> ColdChainBreachProof:
+        """Build proof using Rust backend via FFI."""
+        loop = asyncio.get_event_loop()
+
+        def _generate_sync():
+            # Convert event to JSON
+            event_json = self._event.to_json()
+            breach_ts = breach_timestamp.isoformat()
+
+            # Call Rust proof generation
+            try:
+                proof = zk_generate_cold_chain_proof(
+                    event_json,
+                    declared_min_c,
+                    declared_max_c,
+                    breach_ts,
+                    pk_path,
+                )
+                
+                # Convert Rust proof to Python format
+                return ColdChainBreachProof(
+                    proof=proof.proof,
+                    public_inputs=json.loads(proof.public_inputs),
+                    verification_key=proof.verification_key,
+                    proof_id=proof.proof_id,
+                    generated_at=datetime.fromisoformat(proof.generated_at),
+                )
+            except Exception as e:
+                log.error("zk.rust.generation_error", error=str(e))
+                raise
+
+        try:
+            proof = await loop.run_in_executor(None, _generate_sync)
+            log.info(
+                "zk.proof.generated",
+                proof_id=proof.proof_id,
+                event_type=self._event.type,
+                event_id=self._event.id,
+                backend="rust",
+            )
+            return proof
+        except Exception as e:
+            log.exception("zk.proof.generation_failed_rust", error=str(e))
+            # Fall back to subprocess on error
+            return await self._build_with_subprocess(
+                declared_min_c,
+                declared_max_c,
+                breach_timestamp,
+                pk_path,
+                "/opt/mandala/zk/keys/cold_chain_breach.vk",
+            )
+
+    async def _build_with_subprocess(
+        self,
+        declared_min_c: float,
+        declared_max_c: float,
+        breach_timestamp: datetime,
+        pk_path: str,
+        vk_path: str,
+    ) -> ColdChainBreachProof:
+        """Build proof using subprocess calls to snarkjs (fallback)."""
         # Private inputs (witness)
         witness = {
             "event_hash": self._hash_event(self._event),
@@ -103,6 +189,7 @@ class ZKCircuit:
             proof_id=proof_id,
             event_type=self._event.type,
             event_id=self._event.id,
+            backend="subprocess",
         )
 
         return ColdChainBreachProof(

@@ -17,12 +17,25 @@ from mandala.core.zk.circuits import ColdChainBreachProof
 
 log = structlog.get_logger(__name__)
 
+# Try to import Rust backend, fall back to subprocess
+try:
+    from mandala_rust_ext.zk import (
+        zk_verify_cold_chain_proof,
+        zk_verify_cold_chain_proof_with_timestamp_check,
+    )
+    RUST_BACKEND_AVAILABLE = True
+    log.info("zk.rust_backend.enabled")
+except ImportError:
+    RUST_BACKEND_AVAILABLE = False
+    log.warning("zk.rust_backend.unavailable", message="Falling back to subprocess calls")
+
 
 class ZKVerifier:
     """Async ZK proof verifier without learning witness data."""
 
-    def __init__(self, verification_key: bytes | None = None):
+    def __init__(self, verification_key: bytes | None = None, verification_key_path: str | None = None):
         self._vk = verification_key
+        self._vk_path = verification_key_path
 
     async def verify_cold_chain_proof(
         self,
@@ -36,6 +49,75 @@ class ZKVerifier:
         3. Timestamp is in claimed range
         4. Event type is cold_chain_breach
         """
+        # Use Rust backend if available
+        if RUST_BACKEND_AVAILABLE:
+            return await self._verify_with_rust(proof, expected_timestamp_range)
+        else:
+            return await self._verify_with_subprocess(proof, expected_timestamp_range)
+
+    async def _verify_with_rust(
+        self,
+        proof: ColdChainBreachProof,
+        expected_timestamp_range: tuple[datetime, datetime] | None = None,
+    ) -> bool:
+        """Verify using Rust backend via FFI."""
+        loop = asyncio.get_event_loop()
+
+        def _verify_sync():
+            # Determine verification key source
+            if self._vk_path:
+                verification_key = self._vk_path
+            elif self._vk:
+                verification_key = self._vk
+            else:
+                verification_key = proof.verification_key
+
+            # Convert public inputs to JSON
+            import json
+            public_inputs_json = json.dumps(proof.public_inputs)
+
+            # Call Rust verification
+            if expected_timestamp_range:
+                ts_start = expected_timestamp_range[0].isoformat()
+                ts_end = expected_timestamp_range[1].isoformat()
+                return zk_verify_cold_chain_proof_with_timestamp_check(
+                    proof.proof,
+                    public_inputs_json,
+                    verification_key,
+                    ts_start,
+                    ts_end,
+                )
+            else:
+                return zk_verify_cold_chain_proof(
+                    proof.proof,
+                    public_inputs_json,
+                    verification_key,
+                )
+
+        try:
+            is_valid = await loop.run_in_executor(None, _verify_sync)
+            if not is_valid:
+                log.warning("zk.verification.snark_failed", proof_id=proof.proof_id)
+                return False
+
+            # Verify public inputs (still needed even with Rust backend)
+            if proof.public_inputs["event_type"] != "mandala.truck.cold_chain.breach":
+                log.warning("zk.verification.event_type_mismatch", proof_id=proof.proof_id)
+                return False
+
+            log.info("zk.verification.success", proof_id=proof.proof_id, backend="rust")
+            return True
+        except Exception as e:
+            log.exception("zk.verification.rust_error", proof_id=proof.proof_id, error=str(e))
+            # Fall back to subprocess on error
+            return await self._verify_with_subprocess(proof, expected_timestamp_range)
+
+    async def _verify_with_subprocess(
+        self,
+        proof: ColdChainBreachProof,
+        expected_timestamp_range: tuple[datetime, datetime] | None = None,
+    ) -> bool:
+        """Verify using subprocess calls to snarkjs (fallback)."""
         # Verify SNARK in executor (CPU-bound)
         snark_valid = await self._verify_snark_async(proof.proof, proof.public_inputs, proof.verification_key)
         if not snark_valid:
@@ -57,11 +139,11 @@ class ZKVerifier:
                 log.warning("zk.verification.timestamp_range_mismatch", proof_id=proof.proof_id)
                 return False
 
-        log.info("zk.verification.success", proof_id=proof.proof_id)
+        log.info("zk.verification.success", proof_id=proof.proof_id, backend="subprocess")
         return True
 
     async def _verify_snark_async(self, proof: bytes, public_inputs: dict[str, Any], verification_key: bytes) -> bool:
-        """Async SNARK verification in executor."""
+        """Async SNARK verification in executor (subprocess fallback)."""
         loop = asyncio.get_event_loop()
 
         def _verify_sync():

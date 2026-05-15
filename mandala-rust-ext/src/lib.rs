@@ -10,6 +10,9 @@ use chrono::{DateTime, Utc, TimeZone};
 use serde_json::Value;
 use rand::Rng;
 
+#[cfg(feature = "zk")]
+pub mod zk;
+
 type HmacSha256 = Hmac<Sha256>;
 
 // ============================================================================
@@ -957,6 +960,10 @@ fn mandala_rust_ext(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(float_to_bits, m)?)?;
     m.add_function(wrap_pyfunction!(geohash_fallback, m)?)?;
     m.add_function(wrap_pyfunction!(s2_hash_fallback, m)?)?;
+
+    // ZK-SNARK module (feature-gated)
+    #[cfg(feature = "zk")]
+    zk::register_zk_module(_py, m)?;
 
     Ok(())
 }
