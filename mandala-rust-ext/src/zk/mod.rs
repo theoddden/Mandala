@@ -5,6 +5,7 @@
 
 pub mod circuits;
 pub mod keys;
+pub mod mpc_ceremony;
 pub mod proof;
 pub mod trusted_setup;
 pub mod types;
@@ -12,6 +13,7 @@ pub mod types;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use crate::zk::keys::KeyCache;
+use crate::zk::mpc_ceremony::{MPCCeremony, generate_contribution, simulate_ceremony};
 use crate::zk::proof::{generate_cold_chain_proof, verify_cold_chain_proof, verify_cold_chain_proof_with_timestamp_check};
 use crate::zk::trusted_setup::{generate_trusted_setup, generate_and_save_keys, generate_keys_for_breach_scenario};
 use crate::zk::types::{ColdChainBreachProof, ColdChainPublicInputs, ColdChainWitness, ZKError};
@@ -283,6 +285,186 @@ fn zk_generate_keys_breach_scenario(pk_path: &str, vk_path: &str) -> PyResult<()
     Ok(())
 }
 
+/// Create a new MPC ceremony.
+///
+/// # Arguments
+/// * `required_participants` - Minimum number of participants required
+#[pyfunction]
+#[pyo3(signature = (required_participants))]
+fn zk_mpc_ceremony_new(required_participants: usize) -> PyResult<MPCCeremonyWrapper> {
+    Ok(MPCCeremonyWrapper {
+        inner: MPCCeremony::new(required_participants),
+    })
+}
+
+/// Generate a random contribution for MPC ceremony participant.
+#[pyfunction]
+fn zk_mpc_generate_contribution() -> PyResult<Vec<u8>> {
+    Ok(generate_contribution())
+}
+
+/// Simulate a full MPC ceremony (for testing only).
+///
+/// WARNING: This is for testing only. In production, run a real ceremony
+/// with multiple independent participants.
+#[pyfunction]
+#[pyo3(signature = (num_participants, event_json, declared_min_c, declared_max_c, breach_timestamp, pk_path, vk_path))]
+fn zk_mpc_simulate_ceremony(
+    num_participants: usize,
+    event_json: &str,
+    declared_min_c: f64,
+    declared_max_c: f64,
+    breach_timestamp: &str,
+    pk_path: &str,
+    vk_path: &str,
+) -> PyResult<()> {
+    // Parse event JSON to extract witness data
+    let event_data: serde_json::Value = serde_json::from_str(event_json)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid event JSON: {}", e)))?;
+    
+    let event_hash = event_data.get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    
+    let event_timestamp = event_data.get("time")
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.timestamp())
+        .unwrap_or(0);
+    
+    let temperature_c = event_data.get("data")
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.get("temperature_c"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    
+    let witness = ColdChainWitness::new(
+        event_hash,
+        event_timestamp,
+        temperature_c,
+        declared_min_c,
+        declared_max_c,
+    );
+    
+    let breach_dt = chrono::DateTime::parse_from_rfc3339(breach_timestamp)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid breach timestamp: {}", e)))?;
+    let breach_ts = breach_dt.timestamp();
+    
+    let public_inputs = ColdChainPublicInputs {
+        event_type: "mandala.truck.cold_chain.breach".to_string(),
+        timestamp_range_start: breach_ts - 300,
+        timestamp_range_end: breach_ts + 300,
+        breach_confirmed: temperature_c < declared_min_c || temperature_c > declared_max_c,
+    };
+    
+    let (pk_bytes, vk_bytes, _state) = simulate_ceremony(num_participants, witness, public_inputs)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("MPC ceremony failed: {}", e)))?;
+    
+    std::fs::write(pk_path, pk_bytes)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to write proving key: {}", e)))?;
+    
+    std::fs::write(vk_path, vk_bytes)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to write verification key: {}", e)))?;
+    
+    Ok(())
+}
+
+/// Wrapper for MPCCeremony to expose it to Python.
+#[pyclass]
+pub struct MPCCeremonyWrapper {
+    inner: MPCCeremony,
+}
+
+#[pymethods]
+impl MPCCeremonyWrapper {
+    /// Add a participant contribution.
+    #[pyo3(signature = (participant_id, randomness))]
+    fn add_contribution(&mut self, participant_id: String, randomness: Vec<u8>) -> PyResult<String> {
+        self.inner.add_contribution(participant_id, randomness)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Failed to add contribution: {}", e)))?;
+        Ok("Contribution added successfully".to_string())
+    }
+    
+    /// Generate keys from the ceremony.
+    #[pyo3(signature = (event_json, declared_min_c, declared_max_c, breach_timestamp, pk_path, vk_path))]
+    fn generate_keys(
+        &self,
+        event_json: &str,
+        declared_min_c: f64,
+        declared_max_c: f64,
+        breach_timestamp: &str,
+        pk_path: &str,
+        vk_path: &str,
+    ) -> PyResult<()> {
+        // Parse event JSON to extract witness data
+        let event_data: serde_json::Value = serde_json::from_str(event_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid event JSON: {}", e)))?;
+        
+        let event_hash = event_data.get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        
+        let event_timestamp = event_data.get("time")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp())
+            .unwrap_or(0);
+        
+        let temperature_c = event_data.get("data")
+            .and_then(|v| v.as_object())
+            .and_then(|obj| obj.get("temperature_c"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        
+        let witness = ColdChainWitness::new(
+            event_hash,
+            event_timestamp,
+            temperature_c,
+            declared_min_c,
+            declared_max_c,
+        );
+        
+        let breach_dt = chrono::DateTime::parse_from_rfc3339(breach_timestamp)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid breach timestamp: {}", e)))?;
+        let breach_ts = breach_dt.timestamp();
+        
+        let public_inputs = ColdChainPublicInputs {
+            event_type: "mandala.truck.cold_chain.breach".to_string(),
+            timestamp_range_start: breach_ts - 300,
+            timestamp_range_end: breach_ts + 300,
+            breach_confirmed: temperature_c < declared_min_c || temperature_c > declared_max_c,
+        };
+        
+        let (pk_bytes, vk_bytes) = self.inner.generate_keys(witness, public_inputs)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("Key generation failed: {}", e)))?;
+        
+        std::fs::write(pk_path, pk_bytes)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to write proving key: {}", e)))?;
+        
+        std::fs::write(vk_path, vk_bytes)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyIOError, _>(format!("Failed to write verification key: {}", e)))?;
+        
+        Ok(())
+    }
+    
+    /// Check if the ceremony is complete.
+    fn is_complete(&self) -> bool {
+        self.inner.is_complete()
+    }
+    
+    /// Get the number of required participants.
+    fn required_participants(&self) -> usize {
+        self.inner.required_participants()
+    }
+    
+    /// Get the number of current participants.
+    fn current_participants(&self) -> usize {
+        self.inner.current_participants()
+    }
+}
+
 /// Key cache for in-memory key storage.
 #[pyclass]
 pub struct ZKKeyCache {
@@ -391,10 +573,14 @@ pub fn register_zk_module(py: Python, m: &PyModule) -> PyResult<()> {
     zk_module.add_function(wrap_pyfunction!(zk_load_proving_key, zk_module)?)?;
     zk_module.add_function(wrap_pyfunction!(zk_generate_keys, zk_module)?)?;
     zk_module.add_function(wrap_pyfunction!(zk_generate_keys_breach_scenario, zk_module)?)?;
+    zk_module.add_function(wrap_pyfunction!(zk_mpc_ceremony_new, zk_module)?)?;
+    zk_module.add_function(wrap_pyfunction!(zk_mpc_generate_contribution, zk_module)?)?;
+    zk_module.add_function(wrap_pyfunction!(zk_mpc_simulate_ceremony, zk_module)?)?;
     
     // Register classes
     zk_module.add_class::<ColdChainBreachProof>()?;
     zk_module.add_class::<ZKKeyCache>()?;
+    zk_module.add_class::<MPCCeremonyWrapper>()?;
     
     m.add_submodule(zk_module)?;
     Ok(())
