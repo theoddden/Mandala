@@ -24,7 +24,7 @@ log = structlog.get_logger(__name__)
 def _chunked(iterable, size):
     """Yield successive chunks from an iterable."""
     for i in range(0, len(iterable), size):
-        yield iterable[i:i + size]
+        yield iterable[i : i + size]
 
 
 class ReplayStatus(StrEnum):
