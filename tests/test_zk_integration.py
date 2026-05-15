@@ -3,10 +3,10 @@
 Tests the integration between the Python ZK module and the Rust backend.
 """
 
-from datetime import datetime, UTC
+import json
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
-import json
 import pytest
 
 from mandala.core.events.envelope import MandalaEvent
