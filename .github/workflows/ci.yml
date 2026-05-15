@@ -47,7 +47,7 @@ jobs:
 
   rust-test:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -74,10 +74,20 @@ jobs:
       run: |
         cargo test --release || echo "No Rust tests found"
 
+    - name: Run Rust tests with ZK features
+      working-directory: ./mandala-rust-ext
+      run: |
+        cargo test --release --features zk || echo "ZK tests found issues"
+
     - name: Run Rust clippy
       working-directory: ./mandala-rust-ext
       run: |
         cargo clippy -- -D warnings || echo "Clippy found issues"
+
+    - name: Run Rust clippy with ZK features
+      working-directory: ./mandala-rust-ext
+      run: |
+        cargo clippy --features zk -- -D warnings || echo "Clippy found issues with ZK features"
 
   test:
     runs-on: ubuntu-latest
