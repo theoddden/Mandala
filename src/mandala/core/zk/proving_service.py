@@ -145,7 +145,7 @@ class AsyncProvingService:
                         self._redis.brpop(_QUEUE_KEY, timeout=0),  # type: ignore[union-attr]
                         timeout=1.0,
                     )
-                except (TimeoutError, asyncio.TimeoutError):
+                except TimeoutError:
                     continue
                 if result is None:
                     continue
@@ -162,7 +162,7 @@ class AsyncProvingService:
             else:
                 try:
                     proof_id, event, params = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-                except (TimeoutError, asyncio.TimeoutError):
+                except TimeoutError:
                     continue
 
             try:
