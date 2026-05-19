@@ -215,7 +215,6 @@ class TestReorderBuffer:
     @pytest.fixture
     def redis_mock(self):
         """Return None to force in-memory buffer path in tests."""
-        return None
 
     @pytest.mark.asyncio
     async def test_first_event_released_immediately(self, redis_mock):
@@ -382,7 +381,6 @@ class TestReorderBufferManager:
     @pytest.fixture
     def redis_mock(self):
         """Return None to force in-memory buffer path in tests."""
-        return None
 
     @pytest.mark.asyncio
     async def test_start_stop(self, redis_mock):
