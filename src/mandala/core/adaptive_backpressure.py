@@ -6,6 +6,8 @@ and CPU load. Rejects ingestion when system is degraded.
 
 from __future__ import annotations
 
+import asyncio
+import psutil
 from datetime import UTC, datetime, timezone
 from typing import Any
 

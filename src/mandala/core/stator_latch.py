@@ -26,6 +26,10 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
+import structlog
+
+from mandala.core.state import StateStore
+
 _LATCH_CACHE_MAX_SIZE = 10_000
 
 
@@ -54,9 +58,12 @@ class _BoundedLRU:
     def __len__(self) -> int:
         return len(self._data)
 
-import structlog
-
-from mandala.core.state import StateStore
+    def pop(self, key: str, default: datetime | None = None) -> datetime | None:
+        """Remove and return value for key, or default if not found."""
+        if key in self._data:
+            self._data.pop(key)
+            return self._data.get(key, default)
+        return default
 
 log = structlog.get_logger(__name__)
 
