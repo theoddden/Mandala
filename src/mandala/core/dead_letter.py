@@ -29,14 +29,18 @@ except ImportError:
     _RUST_EXT_AVAILABLE = False
 
 
+MAX_RETRY_COUNT = 10  # Hard cap: events exceeding this are permanently poisoned
+
+
 class DeadLetterQueue:
     """Redis Streams-based dead letter queue for failed events."""
 
-    def __init__(self, redis: object) -> None:
+    def __init__(self, redis: object, max_retry_count: int = MAX_RETRY_COUNT) -> None:
         self._redis = redis
         self._stream = "mandala:dlq"
         self._maxlen = 10_000  # Keep last 10k failed events
         self._retry_stream = "mandala:dlq:retry"  # Separate stream for retry scheduling
+        self._max_retry_count = max_retry_count
 
     async def publish(
         self,
@@ -295,8 +299,21 @@ class DeadLetterQueue:
                 log.warning("dead_letter.retry.not_retryable", msg_id=msg_id)
                 return False
 
+            # Check max retry cap before incrementing
+            current_retry_count = entry.get("retry_count", 0)
+            if current_retry_count >= self._max_retry_count:
+                log.error(
+                    "dead_letter.retry.max_retries_exceeded",
+                    msg_id=msg_id,
+                    retry_count=current_retry_count,
+                    max_retries=self._max_retry_count,
+                )
+                # Remove from retry stream so it stops cycling
+                await self._redis.zrem(self._retry_stream, msg_id)  # type: ignore[attr-defined]
+                return False
+
             # Increment retry count
-            retry_count = entry.get("retry_count", 0) + 1
+            retry_count = current_retry_count + 1
             entry["retry_count"] = retry_count
 
             # Calculate retry delay

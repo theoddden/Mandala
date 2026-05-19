@@ -321,3 +321,61 @@ class RedisStreamsBus:
 
     async def ack(self, stream: str, group: str, message_id: str) -> None:
         await self._redis.xack(stream, group, message_id)  # type: ignore[attr-defined]
+
+    async def reclaim_pending(
+        self,
+        stream: str,
+        *,
+        group: str,
+        consumer: str,
+        min_idle_ms: int = 30_000,
+        count: int = 100,
+    ) -> list[tuple[str, MandalaEvent]]:
+        """Reclaim pending entries from crashed consumers via XAUTOCLAIM.
+
+        Messages that have been in the PEL for longer than ``min_idle_ms``
+        without an XACK are claimed by ``consumer`` and returned for
+        re-processing. Should be called periodically (e.g., every 60 s).
+
+        Requires Redis >= 6.2.
+        """
+        await self._ensure_group(stream, group)
+        try:
+            resp = await self._redis.xautoclaim(  # type: ignore[attr-defined]
+                stream,
+                group,
+                consumer,
+                min_idle_time=min_idle_ms,
+                start_id="0-0",
+                count=count,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("redis.xautoclaim_failed", stream=stream, group=group)
+            return []
+
+        if not resp:
+            return []
+
+        # redis-py returns (next_id, [[msg_id, fields], ...], [deleted_ids])
+        messages_raw = resp[1] if isinstance(resp, (list, tuple)) and len(resp) >= 2 else []
+        if not messages_raw:
+            return []
+
+        out: list[tuple[str, MandalaEvent]] = []
+        for msg_id, fields in messages_raw:
+            msg_id_s = msg_id if isinstance(msg_id, str) else msg_id.decode()
+            raw = fields.get(b"e") if isinstance(fields, dict) else fields.get("e")
+            if raw is None:
+                await self.ack(stream, group, msg_id_s)
+                continue
+            try:
+                event = MandalaEvent.from_json(raw)
+            except Exception:
+                log.exception("malformed_pending_event", stream=stream, msg_id=msg_id_s)
+                await self.ack(stream, group, msg_id_s)
+                continue
+            log.info("pending_entry_reclaimed", stream=stream, msg_id=msg_id_s, event_id=event.id)
+            out.append((msg_id_s, event))
+        return out

@@ -78,6 +78,6 @@ async def ingest_samsara_webhook(
             log.info("samsara.webhook.duplicate", key=key, type=event.type)
             continue
 
-        await bus.publish(stream, event)
+        await bus.publish(stream, event, enable_deduplication=False)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

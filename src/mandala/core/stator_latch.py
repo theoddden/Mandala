@@ -20,11 +20,39 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+
+_LATCH_CACHE_MAX_SIZE = 10_000
+
+
+class _BoundedLRU:
+    """Bounded LRU cache for last-committed event times per entity."""
+
+    def __init__(self, maxsize: int = _LATCH_CACHE_MAX_SIZE) -> None:
+        self._data: OrderedDict[str, datetime] = OrderedDict()
+        self._maxsize = maxsize
+
+    def get(self, key: str) -> datetime | None:
+        if key not in self._data:
+            return None
+        self._data.move_to_end(key)
+        return self._data[key]
+
+    def set(self, key: str, value: datetime) -> None:
+        self._data[key] = value
+        self._data.move_to_end(key)
+        if len(self._data) > self._maxsize:
+            self._data.popitem(last=False)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._data
+
+    def __len__(self) -> int:
+        return len(self._data)
 
 import structlog
 
@@ -85,7 +113,7 @@ class StatorLatch:
         """
         self._redis = redis
         self._ttl = ttl_seconds or self.DEFAULT_TTL_SECONDS
-        self._local_cache: dict[str, datetime] = {}
+        self._local_cache: _BoundedLRU = _BoundedLRU()
         self._cache_lock = asyncio.Lock()
 
         # Statistics
@@ -110,8 +138,9 @@ class StatorLatch:
         """
         # Check local cache first (performance optimization)
         async with self._cache_lock:
-            if source_id in self._local_cache:
-                return self._local_cache[source_id]
+            cached = self._local_cache.get(source_id)
+            if cached is not None:
+                return cached
 
         # Check Redis
         raw = await self._redis.get(self._latch_key(source_id))  # type: ignore[attr-defined]
@@ -123,9 +152,9 @@ class StatorLatch:
 
         try:
             committed_time = datetime.fromisoformat(raw)
-            # Update local cache
+            # Update local cache (bounded LRU)
             async with self._cache_lock:
-                self._local_cache[source_id] = committed_time
+                self._local_cache.set(source_id, committed_time)
             return committed_time
         except (ValueError, TypeError):
             log.warning("stator_latch.invalid_timestamp", source_id=source_id, raw=raw)
@@ -138,9 +167,9 @@ class StatorLatch:
             source_id: Entity identifier
             event_time: Event timestamp to commit
         """
-        # Update local cache
+        # Update local cache (bounded LRU)
         async with self._cache_lock:
-            self._local_cache[source_id] = event_time
+            self._local_cache.set(source_id, event_time)
 
         # Update Redis with TTL
         await self._redis.set(
@@ -182,7 +211,7 @@ class StatorLatch:
 
         # Use Rust for decision logic if available (non-blocking, preserves async architecture)
         if _RUST_EXT_AVAILABLE:
-            rust_result = rust_stator_latch_check(event_time_str, last_committed_str, tolerance_seconds)
+            rust_result = rust_stator_latch_check(event_time_str, tolerance_seconds, last_committed_str)
             decision_str = rust_result.decision
             reason = rust_result.reason
             time_diff = rust_result.time_diff_seconds

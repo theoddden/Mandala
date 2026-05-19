@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import heapq
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -121,7 +121,7 @@ class ReorderBuffer:
 
         # Statistics
         self._stats = BufferStats()
-        self._buffer_times: list[float] = []
+        self._buffer_times: deque[float] = deque(maxlen=1000)
 
     async def add(
         self,
@@ -292,8 +292,6 @@ class ReorderBuffer:
                         # Track buffer time for statistics
                         buffer_time = (now - oldest.received_at).total_seconds() * 1000
                         self._buffer_times.append(buffer_time)
-                        if len(self._buffer_times) > 1000:
-                            self._buffer_times = self._buffer_times[-500:]
 
                         log.debug(
                             "reorder_buffer.released",
@@ -308,20 +306,6 @@ class ReorderBuffer:
                     # Check if event is ready
                     is_in_order = oldest.event_time >= next_expected
                     is_expired = wait_time >= self._max_wait
-                    # Only expire based on buffer wait time, not event timestamp
-                    is_too_old = False  # Disabled - use is_expired instead
-
-                    if is_too_old:
-                        # Drop expired event
-                        heapq.heappop(buffer)
-                        self._stats.total_expired += 1
-                        log.debug(
-                            "reorder_buffer.expired",
-                            source_id=source_id,
-                            event_time=oldest.event_time,
-                            wait_seconds=wait_time,
-                        )
-                        continue
 
                     if is_in_order or is_expired:
                         # Release this event
@@ -333,8 +317,6 @@ class ReorderBuffer:
                         # Track buffer time for statistics
                         buffer_time = (now - oldest.received_at).total_seconds() * 1000
                         self._buffer_times.append(buffer_time)
-                        if len(self._buffer_times) > 1000:
-                            self._buffer_times = self._buffer_times[-500:]
 
                         if is_expired and not is_in_order:
                             log.info(
@@ -484,15 +466,20 @@ class ReorderBufferManager:
     def __init__(
         self,
         redis: object | None = None,
+        on_release: object | None = None,
         **buffer_kwargs: Any,
     ) -> None:
         """Initialize the buffer manager.
 
         Args:
             redis: Optional Redis client
+            on_release: Optional async callable(MandalaEvent) invoked for each
+                event released by the background loop. If None, released events
+                are only logged (backward-compatible behaviour).
             **buffer_kwargs: Arguments passed to ReorderBuffer constructor
         """
         self._buffer = ReorderBuffer(redis=redis, **buffer_kwargs)
+        self._on_release = on_release
         self._background_task: asyncio.Task | None = None
         self._running = False
 
@@ -538,7 +525,15 @@ class ReorderBufferManager:
                             source_id=source_id,
                             count=len(released),
                         )
-                        # In production, these would be sent to the detector pipeline
+                        if self._on_release:
+                            for event in released:
+                                try:
+                                    await self._on_release(event)
+                                except Exception:  # noqa: BLE001
+                                    log.exception(
+                                        "reorder_buffer.release_callback_failed",
+                                        event_id=event.id,
+                                    )
 
                 await asyncio.sleep(interval_seconds)
             except asyncio.CancelledError:

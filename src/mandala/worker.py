@@ -14,6 +14,8 @@ import asyncio
 import os
 import signal
 import socket
+import time as _time
+from collections import defaultdict
 from datetime import UTC, datetime
 
 import redis.asyncio as redis
@@ -134,8 +136,12 @@ async def run() -> None:
 
         # Initialize Re-ordering Buffer for out-of-order events
         if s.reorder_buffer_enabled:
+            async def _reorder_release_callback(released_event: MandalaEvent) -> None:
+                await bus.publish(s.stream_inbound, released_event, enable_deduplication=False)
+
             reorder_buffer_manager = ReorderBufferManager(
                 redis=r,
+                on_release=_reorder_release_callback,
                 max_events_per_entity=s.reorder_buffer_max_events_per_entity,
                 max_wait_seconds=s.reorder_buffer_max_wait_seconds,
                 expire_seconds=s.reorder_buffer_expire_seconds,
@@ -211,15 +217,251 @@ async def run() -> None:
     # Prevents unbounded in-flight work that could exhaust memory/connections
     event_semaphore = asyncio.Semaphore(s.max_concurrent_events)
 
+    # -----------------------------------------------------------------------
+    # Define entity processor once (outside the main loop) so the closure is
+    # not re-created on every batch iteration.
+    # -----------------------------------------------------------------------
+    async def process_entity_events(entity_id: str, entity_events: list[tuple[str, MandalaEvent]]) -> None:
+        # Process events for this entity sequentially to preserve ordering
+        # and prevent read-modify-write race conditions on state
+        for msg_id, event in entity_events:
+            # Concurrency limiter (backpressure control)
+            async with event_semaphore:
+                event_start = datetime.now(UTC)
+                log.debug("mandala.worker.event", id=event.id, type=event.type, entity=entity_id)
+
+                # Set processed_at timestamp for three-timestamp accounting
+                event.processed_at = datetime.now(UTC)
+
+                # --- Deterministic Event-Time Windowing ---
+                # Extract coordinates and compute geometric hash if available
+                latitude = None
+                longitude = None
+                if event.data and isinstance(event.data, dict):
+                    latitude = event.data.get("latitude")
+                    longitude = event.data.get("longitude")
+                    # Also check nested location objects
+                    if latitude is None:
+                        location = event.data.get("location", {})
+                        if isinstance(location, dict):
+                            latitude = location.get("latitude")
+                            longitude = location.get("longitude")
+
+                # Compute geometric hash if coordinates available and service enabled
+                if geo_hash_service and latitude is not None and longitude is not None:
+                    event.geometric_hash = geo_hash_service.compute_hash(latitude, longitude, event.time)
+                    log.debug(
+                        "geometric_hash.computed",
+                        event_id=event.id,
+                        hash=event.geometric_hash,
+                        lat=latitude,
+                        lon=longitude,
+                    )
+
+                # Check Stator's Latch for event-time determinism
+                latch_decision = LatchDecision.PROCEED
+                if stator_latch and event.time:
+                    latch_result = await stator_latch.check(
+                        source_id=entity_id,
+                        event_time=event.time,
+                        geometric_hash=event.geometric_hash,
+                        tolerance_seconds=s.stator_latch_tolerance_seconds,
+                    )
+                    latch_decision = latch_result.decision
+
+                    if latch_decision == LatchDecision.BACKFILL:
+                        # Time-travel data: backfill historical graph, bypass real-time Turbine
+                        log.info(
+                            "stator_latch.backfill",
+                            event_id=event.id,
+                            entity=entity_id,
+                            event_time=event.time,
+                            lag_seconds=latch_result.metadata.get("lag_seconds"),
+                        )
+                        # Acknowledge and skip detectors (backfill only)
+                        await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+                        continue
+                    if latch_decision == LatchDecision.DUPLICATE:
+                        # Duplicate event: drop and acknowledge
+                        log.debug(
+                            "stator_latch.duplicate",
+                            event_id=event.id,
+                            entity=entity_id,
+                        )
+                        await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+                        continue
+
+                # Check re-ordering buffer for out-of-order events
+                if reorder_buffer_manager and event.time:
+                    should_release, buffered_event = await reorder_buffer_manager.add_event(
+                        event=event,
+                        source_id=entity_id,
+                        event_time=event.time,
+                    )
+                    if not should_release:
+                        # Event is buffered for later release
+                        log.debug(
+                            "reorder_buffer.buffered",
+                            event_id=event.id,
+                            entity=entity_id,
+                            event_time=event.time,
+                        )
+                        # Acknowledge the stream message (event is in buffer)
+                        await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+                        continue
+                    # If buffered_event is not None, use that instead (re-ordered)
+                    if buffered_event:
+                        event = buffered_event
+
+                # Trace-native: ship every ingested event as an OTel span.
+                # No-op when MANDALA_OTLP_ENDPOINT is unset.
+                otlp.emit(event)
+
+                # Calculate stream lag (event time to processing time)
+                if event.time:
+                    lag_seconds = (event.processed_at - event.time).total_seconds()
+                    stream_lag_seconds.labels(stream=s.stream_inbound).set(lag_seconds)
+
+                # Project into StateStore (with DLQ fallback)
+                try:
+                    await project(event, state)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("mandala.worker.projection_failed", event_id=event.id, entity=entity_id)
+                    await dlq.publish(event, str(exc), "projection")
+                    dlq_events_total.labels(context="projection").inc()
+                    # Skip detectors when projection fails: detectors read state
+                    # that wasn't updated, so their results would be inconsistent.
+                    await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+                    continue
+
+                # Run detectors in parallel with sandbox protection
+                # Sandbox provides timeout and circuit breaker protection
+                detector_start = datetime.now(UTC)
+                try:
+                    new_events = await detector_sandbox.execute_all(event, state, r)
+                    detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
+                    detector_execution_duration_seconds.labels(detector_name="all").observe(detector_duration)
+
+                    for ne in new_events:
+                        # Set processed_at timestamp for three-timestamp accounting
+                        ne.processed_at = datetime.now(UTC)
+                        # Trace-native: link detector-emitted spans to the
+                        # ingest span (causal parent) so the OTel trace shows
+                        # the full causality chain in any backend.
+                        if ne.parent_span_id is None and event.span_id:
+                            ne.parent_span_id = event.span_id
+                        otlp.emit(ne)
+                        # Detector-emitted events have a fresh `time` per
+                        # invocation, so the bus-layer dedup key would never
+                        # match. Disable it here; webhook layer is the
+                        # authoritative dedup boundary for ingest.
+                        published_id = await bus.publish(s.stream_inbound, ne, enable_deduplication=False)
+                        if not published_id:
+                            # Dropped as duplicate — don't inflate metrics.
+                            continue
+                        events_processed_total.labels(event_type=ne.type, detector="sandbox").inc()
+
+                        # Push alerts back to Samsara if enabled
+                        if samsara_outbound and ne.type.startswith("mandala.alert"):
+                            await _push_to_samsara(samsara_outbound, ne)
+
+                        # Route alerts to external channels if enabled
+                        if s.alert_routing_enabled and ne.type.startswith("mandala.alert"):
+                            # Check aggregation before routing
+                            if await alert_aggregator.should_route(ne):
+                                route_start = datetime.now(UTC)
+                                await alert_router.route(ne)
+                                route_duration = (datetime.now(UTC) - route_start).total_seconds()
+                                alert_routing_duration_seconds.labels(channel="external").observe(
+                                    route_duration
+                                )
+                                alerts_routed_total.labels(channel="external", status="success").inc()
+                            else:
+                                log.debug(
+                                    "alert.aggregated.skipped_routing",
+                                    alert_type=ne.type,
+                                )
+
+                        # Enqueue ZK proof generation for cold-chain breaches (if enabled)
+                        if proving_service and ne.type == "mandala.alert.cold_chain.out_of_spec":
+                            data = ne.data if isinstance(ne.data, dict) else {}
+                            await proving_service.enqueue_proof_request(
+                                event=ne,
+                                proof_params={
+                                    "declared_min_c": data.get("declared_min_c", 2.0),
+                                    "declared_max_c": data.get("declared_max_c", 8.0),
+                                    "breach_timestamp": ne.time,
+                                },
+                            )
+                            log.info("zk.proof.auto_enqueued", event_id=ne.id)
+                except Exception as exc:  # noqa: BLE001
+                    detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
+                    detector_execution_duration_seconds.labels(detector_name="sandbox").observe(
+                        detector_duration
+                    )
+                    log.exception(
+                        "mandala.worker.detector_sandbox_failed",
+                        event_id=event.id,
+                        error=str(exc),
+                    )
+                    await dlq.publish(
+                        event,
+                        str(exc),
+                        "detector",
+                        metadata={"context": "sandbox"},
+                    )
+                    dlq_events_total.labels(context="detector").inc()
+
+                event_duration = (datetime.now(UTC) - event_start).total_seconds()
+                events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(
+                    event_duration
+                )
+
+                # Acknowledge event after successful processing
+                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
+
+    # PEL reclaim: track last reclaim time for periodic XAUTOCLAIM
+    _last_reclaim_at: float = 0.0
+    _PEL_RECLAIM_INTERVAL_SEC: float = 60.0
+
     try:
         while not _shutdown_requested:
+            # --- Adaptive batch size (Fix 8) ---
+            batch_size = s.stream_batch_size
+            if s.adaptive_backpressure_enabled:
+                health = await adaptive_backpressure.check_health()
+                batch_size = adaptive_backpressure.adapt_batch_size(health)
+
             messages = await bus.consume(
                 s.stream_inbound,
                 group=s.consumer_group,
                 consumer=consumer,
-                count=s.stream_batch_size,
+                count=batch_size,
                 block_ms=s.stream_block_ms,
             )
+
+            # --- Periodic PEL reclaim (Fix 14) ---
+            _now = _time.monotonic()
+            if _now - _last_reclaim_at >= _PEL_RECLAIM_INTERVAL_SEC:
+                _last_reclaim_at = _now
+                try:
+                    reclaimed = await bus.reclaim_pending(
+                        s.stream_inbound,
+                        group=s.consumer_group,
+                        consumer=consumer,
+                        min_idle_ms=max(s.stream_block_ms * 2, 30_000),
+                    )
+                    if reclaimed:
+                        log.info("worker.reclaimed_pending_entries", count=len(reclaimed))
+                        reclaimed_by_entity: dict[str, list[tuple[str, MandalaEvent]]] = defaultdict(list)
+                        for msg_id, ev in reclaimed:
+                            reclaimed_by_entity[ev.subject or ev.id].append((msg_id, ev))
+                        await asyncio.gather(
+                            *[process_entity_events(eid, evts) for eid, evts in reclaimed_by_entity.items()],
+                            return_exceptions=True,
+                        )
+                except Exception:  # noqa: BLE001
+                    log.exception("worker.reclaim_error")
 
             if not messages:
                 continue
@@ -227,214 +469,11 @@ async def run() -> None:
             # Group events by entity ID (subject) to prevent race conditions
             # Events for the same entity process sequentially (preserves ordering)
             # Events for different entities process in parallel (throughput)
-            from collections import defaultdict
-
             events_by_entity: dict[str, list[tuple[str, MandalaEvent]]] = defaultdict(list)
             for msg_id, event in messages:
                 # Use subject as entity ID; if no subject, use event ID
                 entity_id = event.subject or event.id
                 events_by_entity[entity_id].append((msg_id, event))
-
-            # Process each entity's events sequentially, entities in parallel
-            # This preserves ordering per-entity while maximizing throughput
-            async def process_entity_events(entity_id: str, entity_events: list[tuple[str, MandalaEvent]]) -> None:
-                # Process events for this entity sequentially to preserve ordering
-                # and prevent read-modify-write race conditions on state
-                for msg_id, event in entity_events:
-                    # Concurrency limiter (backpressure control)
-                    async with event_semaphore:
-                        event_start = datetime.now(UTC)
-                        log.debug("mandala.worker.event", id=event.id, type=event.type, entity=entity_id)
-
-                        # Set processed_at timestamp for three-timestamp accounting
-                        event.processed_at = datetime.now(UTC)
-
-                        # --- Deterministic Event-Time Windowing ---
-                        # Extract coordinates and compute geometric hash if available
-                        latitude = None
-                        longitude = None
-                        if event.data and isinstance(event.data, dict):
-                            latitude = event.data.get("latitude")
-                            longitude = event.data.get("longitude")
-                            # Also check nested location objects
-                            if latitude is None:
-                                location = event.data.get("location", {})
-                                if isinstance(location, dict):
-                                    latitude = location.get("latitude")
-                                    longitude = location.get("longitude")
-
-                        # Compute geometric hash if coordinates available and service enabled
-                        if geo_hash_service and latitude is not None and longitude is not None:
-                            event.geometric_hash = geo_hash_service.compute_hash(latitude, longitude, event.time)
-                            log.debug(
-                                "geometric_hash.computed",
-                                event_id=event.id,
-                                hash=event.geometric_hash,
-                                lat=latitude,
-                                lon=longitude,
-                            )
-
-                        # Check Stator's Latch for event-time determinism
-                        latch_decision = LatchDecision.PROCEED
-                        if stator_latch and event.time:
-                            latch_result = await stator_latch.check(
-                                source_id=entity_id,
-                                event_time=event.time,
-                                geometric_hash=event.geometric_hash,
-                                tolerance_seconds=s.stator_latch_tolerance_seconds,
-                            )
-                            latch_decision = latch_result.decision
-
-                            if latch_decision == LatchDecision.BACKFILL:
-                                # Time-travel data: backfill historical graph, bypass real-time Turbine
-                                log.info(
-                                    "stator_latch.backfill",
-                                    event_id=event.id,
-                                    entity=entity_id,
-                                    event_time=event.time,
-                                    lag_seconds=latch_result.metadata.get("lag_seconds"),
-                                )
-                                # Acknowledge and skip detectors (backfill only)
-                                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
-                                continue
-                            if latch_decision == LatchDecision.DUPLICATE:
-                                # Duplicate event: drop and acknowledge
-                                log.debug(
-                                    "stator_latch.duplicate",
-                                    event_id=event.id,
-                                    entity=entity_id,
-                                )
-                                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
-                                continue
-
-                        # Check re-ordering buffer for out-of-order events
-                        if reorder_buffer_manager and event.time:
-                            should_release, buffered_event = await reorder_buffer_manager.add_event(
-                                event=event,
-                                source_id=entity_id,
-                                event_time=event.time,
-                            )
-                            if not should_release:
-                                # Event is buffered for later release
-                                log.debug(
-                                    "reorder_buffer.buffered",
-                                    event_id=event.id,
-                                    entity=entity_id,
-                                    event_time=event.time,
-                                )
-                                # Acknowledge the stream message (event is in buffer)
-                                await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
-                                continue
-                            # If buffered_event is not None, use that instead (re-ordered)
-                            if buffered_event:
-                                event = buffered_event
-
-                        # Trace-native: ship every ingested event as an OTel span.
-                        # No-op when MANDALA_OTLP_ENDPOINT is unset.
-                        otlp.emit(event)
-
-                        # Calculate stream lag (event time to processing time)
-                        if event.time:
-                            lag_seconds = (event.processed_at - event.time).total_seconds()
-                            stream_lag_seconds.labels(stream=s.stream_inbound).set(lag_seconds)
-
-                        # Project into StateStore (with DLQ fallback)
-                        try:
-                            await project(event, state)
-                        except Exception as exc:  # noqa: BLE001
-                            log.exception("mandala.worker.projection_failed", event_id=event.id, entity=entity_id)
-                            await dlq.publish(event, str(exc), "projection")
-                            dlq_events_total.labels(context="projection").inc()
-                            # Skip detectors when projection fails: detectors read state
-                            # that wasn't updated, so their results would be inconsistent.
-                            await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
-                            continue
-
-                        # Run detectors in parallel with sandbox protection
-                        # Sandbox provides timeout and circuit breaker protection
-                        detector_start = datetime.now(UTC)
-                        try:
-                            new_events = await detector_sandbox.execute_all(event, state, r)
-                            detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
-                            detector_execution_duration_seconds.labels(detector_name="all").observe(detector_duration)
-
-                            for ne in new_events:
-                                # Set processed_at timestamp for three-timestamp accounting
-                                ne.processed_at = datetime.now(UTC)
-                                # Trace-native: link detector-emitted spans to the
-                                # ingest span (causal parent) so the OTel trace shows
-                                # the full causality chain in any backend.
-                                if ne.parent_span_id is None and event.span_id:
-                                    ne.parent_span_id = event.span_id
-                                otlp.emit(ne)
-                                # Detector-emitted events have a fresh `time` per
-                                # invocation, so the bus-layer dedup key would never
-                                # match. Disable it here; webhook layer is the
-                                # authoritative dedup boundary for ingest.
-                                published_id = await bus.publish(s.stream_inbound, ne, enable_deduplication=False)
-                                if not published_id:
-                                    # Dropped as duplicate — don't inflate metrics.
-                                    continue
-                                events_processed_total.labels(event_type=ne.type, detector="sandbox").inc()
-
-                                # Push alerts back to Samsara if enabled
-                                if samsara_outbound and ne.type.startswith("mandala.alert"):
-                                    await _push_to_samsara(samsara_outbound, ne)
-
-                                # Route alerts to external channels if enabled
-                                if s.alert_routing_enabled and ne.type.startswith("mandala.alert"):
-                                    # Check aggregation before routing
-                                    if await alert_aggregator.should_route(ne):
-                                        route_start = datetime.now(UTC)
-                                        await alert_router.route(ne)
-                                        route_duration = (datetime.now(UTC) - route_start).total_seconds()
-                                        alert_routing_duration_seconds.labels(channel="external").observe(
-                                            route_duration
-                                        )
-                                        alerts_routed_total.labels(channel="external", status="success").inc()
-                                    else:
-                                        log.debug(
-                                            "alert.aggregated.skipped_routing",
-                                            alert_type=ne.type,
-                                        )
-
-                                # Enqueue ZK proof generation for cold-chain breaches (if enabled)
-                                if proving_service and ne.type == "mandala.alert.cold_chain.out_of_spec":
-                                    data = ne.data if isinstance(ne.data, dict) else {}
-                                    await proving_service.enqueue_proof_request(
-                                        event=ne,
-                                        proof_params={
-                                            "declared_min_c": data.get("declared_min_c", 2.0),
-                                            "declared_max_c": data.get("declared_max_c", 8.0),
-                                            "breach_timestamp": ne.time,
-                                        },
-                                    )
-                                    log.info("zk.proof.auto_enqueued", event_id=ne.id)
-                        except Exception as exc:  # noqa: BLE001
-                            detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
-                            detector_execution_duration_seconds.labels(detector_name="sandbox").observe(
-                                detector_duration
-                            )
-                            log.exception(
-                                "mandala.worker.detector_sandbox_failed",
-                                event_id=event.id,
-                                error=str(exc),
-                            )
-                            await dlq.publish(
-                                event,
-                                str(exc),
-                                "detector",
-                                metadata={"context": "sandbox"},
-                            )
-                            dlq_events_total.labels(context="detector").inc()
-
-                        event_duration = (datetime.now(UTC) - event_start).total_seconds()
-                        events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(
-                            event_duration
-                        )
-
-                        # Acknowledge event after successful processing
-                        await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
 
             # Process entities in parallel, events within each entity sequentially
             # return_exceptions=True ensures one entity failure doesn't cancel others

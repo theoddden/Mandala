@@ -29,11 +29,16 @@ class AsyncProvingService:
     proofs are generated asynchronously, and results are stored in Iceberg.
     """
 
+    PROOF_STATUS_PENDING = "pending"
+    PROOF_STATUS_COMPLETE = "complete"
+    PROOF_STATUS_FAILED = "failed"
+
     def __init__(self, max_concurrent_proofs: int = 4):
-        self._queue: asyncio.Queue[tuple[MandalaEvent, dict[str, Any]]] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[str, MandalaEvent, dict[str, Any]]] = asyncio.Queue()
         self._max_concurrent = max_concurrent_proofs
         self._workers: list[asyncio.Task] = []
         self._running = False
+        self._proof_status: dict[str, str] = {}
 
     async def start(self) -> None:
         """Start background proof generation workers."""
@@ -67,30 +72,38 @@ class AsyncProvingService:
         and stored in Iceberg when complete.
         """
         proof_id = str(uuid.uuid4())
-        await self._queue.put((event, proof_params))
+        self._proof_status[proof_id] = self.PROOF_STATUS_PENDING
+        await self._queue.put((proof_id, event, proof_params))
         log.info("zk.proof.enqueued", proof_id=proof_id, event_id=event.id)
         return proof_id
+
+    def get_proof_status(self, proof_id: str) -> str | None:
+        """Return status of a proof request, or None if unknown."""
+        return self._proof_status.get(proof_id)
 
     async def _worker(self, name: str) -> None:
         """Background worker that generates proofs from queue."""
         while self._running:
             try:
-                event, params = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+                proof_id, event, params = await asyncio.wait_for(self._queue.get(), timeout=1.0)
             except TimeoutError:
                 continue
 
             try:
-                await self._generate_and_store(event, params)
+                await self._generate_and_store(proof_id, event, params)
+                self._proof_status[proof_id] = self.PROOF_STATUS_COMPLETE
             except Exception:
+                self._proof_status[proof_id] = self.PROOF_STATUS_FAILED
                 log.exception(
                     "zk.proof.generation_failed",
                     worker=name,
+                    proof_id=proof_id,
                     event_id=event.id,
                 )
             finally:
                 self._queue.task_done()
 
-    async def _generate_and_store(self, event: MandalaEvent, params: dict[str, Any]) -> None:
+    async def _generate_and_store(self, proof_id: str, event: MandalaEvent, params: dict[str, Any]) -> None:
         """Generate proof and store in Iceberg."""
         circuit = ZKCircuit(event)
 
@@ -102,15 +115,16 @@ class AsyncProvingService:
         )
 
         # Store in Iceberg (async)
-        await self._store_proof_in_iceberg(event, proof)
+        await self._store_proof_in_iceberg(proof_id, event, proof)
 
         log.info(
             "zk.proof.stored",
-            proof_id=proof.proof_id,
+            proof_id=proof_id,
+            circuit_proof_id=proof.proof_id,
             event_id=event.id,
         )
 
-    async def _store_proof_in_iceberg(self, event: MandalaEvent, proof: ColdChainBreachProof) -> None:
+    async def _store_proof_in_iceberg(self, proof_id: str, event: MandalaEvent, proof: ColdChainBreachProof) -> None:
         """Store proof in Iceberg event log table."""
         # Import here to avoid circular dependency
         from mandala.core.event_log import get_event_log
@@ -122,7 +136,8 @@ class AsyncProvingService:
             source="mandala/zk/proving_service",
             subject=event.subject,
             data={
-                "proof_id": proof.proof_id,
+                "proof_id": proof_id,
+                "circuit_proof_id": proof.proof_id,
                 "event_id": event.id,
                 "event_type": event.type,
                 "public_inputs": proof.public_inputs,

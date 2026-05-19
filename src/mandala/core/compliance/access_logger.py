@@ -12,28 +12,33 @@ from typing import Any
 
 import structlog
 from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+from starlette.types import ASGIApp
 
 log = structlog.get_logger(__name__)
 
 
-class AccessLogMiddleware:
+class AccessLogMiddleware(BaseHTTPMiddleware):
     """Middleware for access logging.
 
     Logs all /events POST requests to Redis stream for audit trail.
+    Redis is fetched lazily from request.app.state to avoid capturing
+    a None reference before the lifespan startup hook runs.
     """
 
-    def __init__(self, redis_client: Any, enabled: bool = True) -> None:
+    def __init__(self, app: ASGIApp, enabled: bool = True) -> None:
         """Initialize access logging middleware.
 
         Args:
-            redis_client: Redis client for logging
+            app: The ASGI app to wrap
             enabled: Whether access logging is active
         """
-        self._redis = redis_client
+        super().__init__(app)
         self._enabled = enabled
         self._stream_name = "mandala:audit:access"
 
-    async def __call__(self, request: Request, call_next) -> Any:
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
         """Process request and log access.
 
         Args:
@@ -52,6 +57,11 @@ class AccessLogMiddleware:
 
         path = request.url.path
         if not (path == "/events" or path.startswith("/webhooks/")):
+            return await call_next(request)
+
+        # Fetch Redis lazily from app.state (set by lifespan startup)
+        redis = getattr(getattr(request.app, "state", None), "redis", None)
+        if redis is None:
             return await call_next(request)
 
         # Capture request info
@@ -78,7 +88,7 @@ class AccessLogMiddleware:
         }
 
         try:
-            await self._redis.xadd(self._stream_name, log_entry)  # type: ignore[attr-defined]
+            await redis.xadd(self._stream_name, log_entry)  # type: ignore[attr-defined]
             log.debug(
                 "access.logged",
                 ip=client_host,

@@ -28,37 +28,35 @@ class DetectorSandbox:
         timeout_seconds: float = 30.0,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
+        circuit_breaker_name: str | None = None,
     ) -> None:
         self._detector_func = detector_func
         self._detector_name = detector_name
         self._timeout = timeout_seconds
         self._circuit_breaker = CircuitBreaker(
+            name=circuit_breaker_name or detector_name,
             failure_threshold=circuit_breaker_threshold,
             recovery_timeout=circuit_breaker_timeout,
         )
 
     async def execute(self, event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
         """Execute detector with timeout and circuit breaker protection."""
-        # Check circuit breaker
-        if self._circuit_breaker.is_open():
+        from mandala.core.circuit_breaker import CircuitBreakerOpenError
+
+        try:
+            async with self._circuit_breaker:
+                result = await asyncio.wait_for(
+                    self._detector_func(event, state, redis),
+                    timeout=self._timeout,
+                )
+                return result or []
+        except CircuitBreakerOpenError:
             log.warning(
                 "detector.circuit_breaker_open",
                 detector=self._detector_name,
                 event_id=event.id,
             )
             return []
-
-        try:
-            # Execute with timeout
-            result = await asyncio.wait_for(
-                self._detector_func(event, state, redis),
-                timeout=self._timeout,
-            )
-
-            # Record success
-            self._circuit_breaker.record_success()
-            return result
-
         except TimeoutError:
             log.error(
                 "detector.timeout",
@@ -66,9 +64,7 @@ class DetectorSandbox:
                 event_id=event.id,
                 timeout_seconds=self._timeout,
             )
-            self._circuit_breaker.record_failure()
             return []
-
         except Exception as exc:
             log.exception(
                 "detector.execution_failed",
@@ -76,7 +72,6 @@ class DetectorSandbox:
                 event_id=event.id,
                 error=str(exc),
             )
-            self._circuit_breaker.record_failure()
             raise
 
 
@@ -104,6 +99,7 @@ class DetectorSandboxPool:
                 timeout_seconds=timeout,
                 circuit_breaker_threshold=5,
                 circuit_breaker_timeout=60.0,
+                circuit_breaker_name=detector_name,
             )
 
     async def execute_all(self, event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
@@ -124,11 +120,12 @@ class DetectorSandboxPool:
 
     def get_circuit_breaker_status(self) -> dict[str, dict]:
         """Get circuit breaker status for all detectors."""
+        from mandala.core.circuit_breaker import CircuitState
+
         return {
             name: {
-                "is_open": sandbox._circuit_breaker.is_open(),
-                "failure_count": sandbox._circuit_breaker._failure_count,
-                "last_failure_time": sandbox._circuit_breaker._last_failure_time,
+                **sandbox._circuit_breaker.get_stats(),
+                "is_open": sandbox._circuit_breaker.get_state() == CircuitState.OPEN,
             }
             for name, sandbox in self._sandboxes.items()
         }

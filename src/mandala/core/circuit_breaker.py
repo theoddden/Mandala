@@ -330,11 +330,15 @@ class CircuitBreaker:
 
     def get_metrics(self) -> dict[str, Any]:
         """Get circuit breaker metrics."""
+        stats = self.get_stats()
+        failures = stats["failure_count"]
+        successes = stats["success_count"]
+        total = failures + successes
         return {
-            "total_calls": self._failure_count + self._success_count,
-            "successful_calls": self._success_count,
-            "failed_calls": self._failure_count,
-            "success_rate": self._success_count / max(1, self._failure_count + self._success_count),
+            "total_calls": total,
+            "successful_calls": successes,
+            "failed_calls": failures,
+            "success_rate": successes / max(1, total),
         }
 
     def set_exception_handler(self, handler: object) -> None:

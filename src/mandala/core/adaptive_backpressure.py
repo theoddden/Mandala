@@ -57,7 +57,7 @@ class AdaptiveBackpressure:
             "timestamp": datetime.now(UTC).isoformat(),
             "redis_latency_ms": await self._check_redis_latency(),
             "memory_percent": self._check_memory_usage(),
-            "cpu_percent": self._check_cpu_usage(),
+            "cpu_percent": await self._check_cpu_usage(),
             "stream_length": await self._check_stream_length(),
             "is_healthy": True,
             "recommendation": "normal",
@@ -102,10 +102,10 @@ class AdaptiveBackpressure:
             log.exception("memory.check_failed")
             return 0.0
 
-    def _check_cpu_usage(self) -> float:
-        """Check system CPU usage."""
+    async def _check_cpu_usage(self) -> float:
+        """Check system CPU usage (runs in thread to avoid blocking event loop)."""
         try:
-            return psutil.cpu_percent(interval=0.1)
+            return await asyncio.to_thread(psutil.cpu_percent, interval=0.1)
         except Exception:
             log.exception("cpu.check_failed")
             return 0.0

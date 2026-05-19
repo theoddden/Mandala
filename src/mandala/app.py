@@ -93,7 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Add compliance middleware (access logging and data residency)
     if s.audit_access_log_enabled:
-        app.add_middleware(AccessLogMiddleware, redis_client=app.state.redis, enabled=True)
+        app.add_middleware(AccessLogMiddleware, enabled=True)
         log.info("mandala.audit_access_log_enabled")
 
     if s.data_residency_enabled:
