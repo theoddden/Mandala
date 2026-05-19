@@ -7,10 +7,10 @@ and CPU load. Rejects ingestion when system is degraded.
 from __future__ import annotations
 
 import asyncio
-import psutil
 from datetime import UTC, datetime, timezone
 from typing import Any
 
+import psutil
 import structlog
 
 from mandala.settings import get_settings
