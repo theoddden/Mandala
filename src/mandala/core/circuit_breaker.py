@@ -318,6 +318,8 @@ class CircuitBreaker:
     async def check_state(self) -> None:
         """Check and update circuit state based on timeout."""
         async with self._lock:
+            if self._rust_breaker:
+                return
             if self._state == CircuitState.OPEN:
                 if self._last_failure_time and time.time() - self._last_failure_time > self._config.recovery_timeout:
                     self._state = CircuitState.HALF_OPEN

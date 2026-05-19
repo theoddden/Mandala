@@ -14,6 +14,7 @@ is performed via a Lua script to prevent race conditions.
 from __future__ import annotations
 
 import asyncio
+import weakref
 from typing import AsyncIterator, Protocol
 
 import structlog
@@ -125,6 +126,7 @@ class RedisStreamsBus:
         self._redis = redis
         self._dedupe_script_sha: str | None = None
         self._event_log = event_log  # Optional Iceberg event log for dual-write
+        self._bg_tasks: weakref.WeakSet[asyncio.Task] = weakref.WeakSet()
 
     async def _ensure_dedupe_script(self) -> None:
         """Register the deduplication Lua script if not already registered."""
@@ -164,9 +166,13 @@ class RedisStreamsBus:
                     dedupe_key,
                     self.IDEMPOTENCY_TTL_SEC,  # TTL argument
                 )
-            except Exception:  # noqa: BLE001
-                # Fallback to full EVAL on NOSCRIPT or other script-related errors.
-                log.debug("evalsha failed, falling back to eval")
+            except Exception as _exc:  # noqa: BLE001
+                # Only fall back on NOSCRIPT (script flushed on Redis restart).
+                # Re-raise all other errors (connection failures, OOM, auth).
+                if "NOSCRIPT" not in str(_exc):
+                    raise
+                self._dedupe_script_sha = None  # Force re-registration next publish
+                log.debug("evalsha NOSCRIPT, falling back to eval")
                 result = await self._redis.eval(
                     DEDUPE_SCRIPT,
                     1,  # number of keys
@@ -199,9 +205,11 @@ class RedisStreamsBus:
             idempotency_key=event.mandalaidempotencykey,
         )
 
-        # Dual-write to Iceberg if configured (fire-and-forget, non-blocking)
+        # Dual-write to Iceberg if configured (fire-and-forget, non-blocking).
+        # Hold a reference in _bg_tasks to prevent GC before completion.
         if self._event_log:
-            asyncio.create_task(self._append_to_event_log(event))
+            task = asyncio.create_task(self._append_to_event_log(event))
+            self._bg_tasks.add(task)
 
         return msg_id
 

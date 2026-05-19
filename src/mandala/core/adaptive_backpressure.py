@@ -10,7 +10,6 @@ import asyncio
 from datetime import UTC, datetime, timezone
 from typing import Any
 
-import psutil
 import structlog
 
 from mandala.settings import get_settings

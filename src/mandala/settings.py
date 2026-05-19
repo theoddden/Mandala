@@ -98,6 +98,7 @@ class Settings(BaseSettings):
         default=50, ge=1, le=1000, description="Max events processed concurrently per worker"
     )
     stream_maxlen: int = Field(default=100_000, ge=1000, description="Max messages per Redis Stream (approximate)")
+    alerts_stream_maxlen: int = Field(default=10_000, ge=100, description="Max messages in the mandala:alerts mirror stream")
 
     # Backpressure handling (reject new events when overloaded)
     backpressure_enabled: bool = True
@@ -210,7 +211,7 @@ class Settings(BaseSettings):
     # Stator's Latch configuration
     stator_latch_enabled: bool = True
     stator_latch_ttl_seconds: int = 14 * 86_400  # 14 days
-    stator_latch_tolerance_seconds: int = 1  # Duplicate detection tolerance
+    stator_latch_tolerance_seconds: int = 0  # Duplicate detection tolerance (0 = geometric-hash dedup only)
 
     # Re-ordering Buffer configuration
     reorder_buffer_enabled: bool = True

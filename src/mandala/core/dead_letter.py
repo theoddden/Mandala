@@ -323,23 +323,24 @@ class DeadLetterQueue:
             # Calculate retry timestamp
             retry_at = datetime.now(UTC).timestamp() + retry_delay
 
-            # Schedule retry in retry stream (score = retry timestamp)
-            await self._redis.zadd(  # type: ignore[attr-defined]
-                self._retry_stream,
-                {msg_id: retry_at},
-            )
-
             # Update entry with retry info
             entry["retry_scheduled_at"] = datetime.now(UTC).isoformat()
             entry["retry_at"] = datetime.fromtimestamp(retry_at, UTC).isoformat()
 
-            # Update original entry
+            # Update original entry — capture the new stream id produced by xadd
             await self._redis.xdel(self._stream, msg_id)  # type: ignore[attr-defined]
-            await self._redis.xadd(  # type: ignore[attr-defined]
+            new_msg_id_raw = await self._redis.xadd(  # type: ignore[attr-defined]
                 self._stream,
                 {"entry": json.dumps(entry, default=str)},
                 maxlen=self._maxlen,
                 approximate=True,
+            )
+            new_msg_id = new_msg_id_raw.decode() if isinstance(new_msg_id_raw, bytes) else new_msg_id_raw
+
+            # Schedule retry using the NEW stream id so process_retries can find the entry
+            await self._redis.zadd(  # type: ignore[attr-defined]
+                self._retry_stream,
+                {new_msg_id: retry_at},
             )
 
             log.info(

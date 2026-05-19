@@ -199,7 +199,7 @@ async def run() -> None:
     # Start ZK proving service (if enabled)
     proving_service: AsyncProvingService | None = None
     if s.zk_enabled:
-        proving_service = AsyncProvingService(max_concurrent_proofs=s.zk_max_concurrent_proofs)
+        proving_service = AsyncProvingService(max_concurrent_proofs=s.zk_max_concurrent_proofs, redis=r)
         await proving_service.start()
         log.info("zk.proving_service.enabled", max_concurrent=s.zk_max_concurrent_proofs)
 
@@ -361,6 +361,15 @@ async def run() -> None:
                             # Dropped as duplicate — don't inflate metrics.
                             continue
                         events_processed_total.labels(event_type=ne.type, detector="sandbox").inc()
+
+                        # Mirror alerts to dedicated stream for O(1) MCP queries
+                        if ne.type.startswith("mandala.alert"):
+                            await r.xadd(  # type: ignore[union-attr]
+                                "mandala:alerts",
+                                {"e": ne.to_json()},
+                                maxlen=s.alerts_stream_maxlen,
+                                approximate=True,
+                            )
 
                         # Push alerts back to Samsara if enabled
                         if samsara_outbound and ne.type.startswith("mandala.alert"):

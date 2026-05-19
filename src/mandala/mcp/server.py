@@ -11,13 +11,33 @@ import json
 from typing import Any
 
 import redis.asyncio as redis
+from redis.asyncio import ConnectionPool
 
 from mandala.core.state import StateStore
 from mandala.settings import get_settings
 
+_pool: ConnectionPool | None = None
 
-async def _state() -> tuple[StateStore, object]:
-    r = redis.from_url(get_settings().redis_url, decode_responses=False)
+
+def _get_pool() -> ConnectionPool:
+    """Lazy-initialised module-level connection pool shared across all tool calls."""
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool.from_url(
+            get_settings().redis_url,
+            decode_responses=False,
+            max_connections=20,
+        )
+    return _pool
+
+
+def _get_redis() -> redis.Redis:
+    """Return a client backed by the shared pool. aclose() returns to pool."""
+    return redis.Redis(connection_pool=_get_pool())
+
+
+async def _state() -> tuple[StateStore, redis.Redis]:
+    r = _get_redis()
     return StateStore(r), r
 
 
@@ -66,12 +86,13 @@ async def tool_check_customs_status(shipment_urn: str) -> dict[str, Any]:
 
 
 async def tool_get_recent_alerts(limit: int = 50, severity: str | None = None) -> dict[str, Any]:
-    settings = get_settings()
-    r = redis.from_url(settings.redis_url, decode_responses=False)
+    r = _get_redis()
     try:
-        # Read the inbound stream from the tail; filter to alert types.
-        resp = await r.xrevrange(settings.stream_inbound, count=max(limit * 5, 100))
         alerts: list[dict[str, Any]] = []
+        source = "alerts_stream"
+
+        # Fast path: read from the dedicated alerts stream (O(limit))
+        resp = await r.xrevrange("mandala:alerts", count=limit)
         for _msg_id, fields in resp or []:
             raw = fields.get(b"e") if isinstance(fields, dict) else None
             if raw is None:
@@ -80,14 +101,32 @@ async def tool_get_recent_alerts(limit: int = 50, severity: str | None = None) -
                 event = json.loads(raw)
             except json.JSONDecodeError:
                 continue
-            if not str(event.get("type", "")).startswith("mandala.alert."):
-                continue
             if severity and (event.get("data") or {}).get("severity") != severity:
                 continue
             alerts.append(event)
-            if len(alerts) >= limit:
-                break
-        return {"alerts": alerts, "count": len(alerts)}
+
+        # Fallback: alerts stream empty/absent — scan main stream (pre-v0.2 deployments)
+        if not alerts:
+            source = "main_stream_scan"
+            settings = get_settings()
+            scan_resp = await r.xrevrange(settings.stream_inbound, count=max(limit * 5, 100))
+            for _msg_id, fields in scan_resp or []:
+                raw = fields.get(b"e") if isinstance(fields, dict) else None
+                if raw is None:
+                    continue
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if not str(event.get("type", "")).startswith("mandala.alert."):
+                    continue
+                if severity and (event.get("data") or {}).get("severity") != severity:
+                    continue
+                alerts.append(event)
+                if len(alerts) >= limit:
+                    break
+
+        return {"alerts": alerts, "count": len(alerts), "source": source}
     finally:
         await r.aclose()
 
@@ -237,7 +276,7 @@ async def tool_replay_events(
     from mandala.core.replay import replay_from_stream
 
     settings = get_settings()
-    r = redis.from_url(settings.redis_url, decode_responses=False)
+    r = _get_redis()
     state = StateStore(r)
 
     try:
@@ -284,8 +323,7 @@ async def tool_inspect_dlq(limit: int = 50) -> dict[str, Any]:
     """Inspect the Dead Letter Queue for failed events."""
     from mandala.core.dead_letter import DeadLetterQueue
 
-    settings = get_settings()
-    r = redis.from_url(settings.redis_url, decode_responses=False)
+    r = _get_redis()
     try:
         dlq = DeadLetterQueue(r)
         failed_events = await dlq.read(count=limit)
@@ -405,7 +443,7 @@ async def tool_health_check() -> dict[str, Any]:
     from mandala.core.event_log import get_event_log
 
     settings = get_settings()
-    r = redis.from_url(settings.redis_url, decode_responses=False)
+    r = _get_redis()
     try:
         # Check Redis connectivity
         await r.ping()

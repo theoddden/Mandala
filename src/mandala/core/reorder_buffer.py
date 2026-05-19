@@ -114,14 +114,79 @@ class ReorderBuffer:
             s, "reorder_buffer_expire_seconds", self.DEFAULT_EXPIRE_SECONDS
         )
 
-        # In-memory buffers per entity (priority queues)
+        # In-memory buffers per entity (priority queues — used when no Redis)
         self._buffers: dict[str, list[BufferedEvent]] = defaultdict(list)
         self._next_expected: dict[str, datetime] = {}
         self._lock = asyncio.Lock()
 
+        # Redis key constants (only used when self._redis is not None)
+        self._EXPECTED_HASH = "mandala:reorder:expected"
+
+        if self._redis is not None:
+            log.info(
+                "reorder_buffer.redis_backed",
+                message="Buffer backed by Redis — safe for multi-worker deployment",
+            )
+        else:
+            log.warning(
+                "reorder_buffer.in_memory",
+                message="Buffer is in-memory only. Run multiple workers with MANDALA_REDIS_URL set.",
+            )
+
         # Statistics
         self._stats = BufferStats()
         self._buffer_times: deque[float] = deque(maxlen=1000)
+
+    # ------------------------------------------------------------------
+    # Redis persistence helpers
+    # ------------------------------------------------------------------
+
+    async def _r_get_next_expected(self, source_id: str) -> datetime | None:
+        raw = await self._redis.hget(self._EXPECTED_HASH, source_id)  # type: ignore[union-attr]
+        if raw is None:
+            return None
+        s = raw.decode() if isinstance(raw, bytes) else raw
+        return datetime.fromisoformat(s)
+
+    async def _r_set_next_expected(self, source_id: str, dt: datetime) -> None:
+        await self._redis.hset(self._EXPECTED_HASH, source_id, dt.isoformat())  # type: ignore[union-attr]
+
+    def _r_buf_key(self, source_id: str) -> str:
+        return f"{self.BUFFER_KEY_PREFIX}:{source_id}"
+
+    async def _r_zadd_event(self, source_id: str, event: MandalaEvent, event_time: datetime) -> None:
+        key = self._r_buf_key(source_id)
+        score = event_time.timestamp()
+        member = event.to_json()
+        await self._redis.zadd(key, {member: score})  # type: ignore[union-attr]
+        await self._redis.expire(key, self._expire_seconds)  # type: ignore[union-attr]
+
+    async def _r_zcard(self, source_id: str) -> int:
+        return await self._redis.zcard(self._r_buf_key(source_id))  # type: ignore[union-attr]
+
+    async def _r_zpopmin(self, source_id: str) -> tuple[float, str] | None:
+        result = await self._redis.zpopmin(self._r_buf_key(source_id), count=1)  # type: ignore[union-attr]
+        if not result:
+            return None
+        member, score = result[0]
+        return score, (member.decode() if isinstance(member, bytes) else member)
+
+    async def _r_zrange_oldest(self, source_id: str) -> tuple[float, str] | None:
+        """Peek at the oldest (lowest-score) member without removing it."""
+        result = await self._redis.zrange(  # type: ignore[union-attr]
+            self._r_buf_key(source_id), 0, 0, withscores=True
+        )
+        if not result:
+            return None
+        member, score = result[0]
+        return score, (member.decode() if isinstance(member, bytes) else member)
+
+    async def _r_get_all_source_ids(self) -> list[str]:
+        """Return all source IDs that have a known next_expected value in Redis."""
+        raw_keys = await self._redis.hkeys(self._EXPECTED_HASH)  # type: ignore[union-attr]
+        return [k.decode() if isinstance(k, bytes) else k for k in raw_keys]
+
+    # ------------------------------------------------------------------
 
     async def add(
         self,
@@ -141,6 +206,9 @@ class ReorderBuffer:
         """
         if event_time is None:
             event_time = event.time
+
+        if self._redis is not None:
+            return await self._add_redis(event, source_id, event_time)
 
         async with self._lock:
             # First event for this source - release immediately
@@ -203,13 +271,62 @@ class ReorderBuffer:
             # Otherwise buffer it
             return await self._buffer_event(event, source_id, event_time)
 
+    async def _add_redis(
+        self,
+        event: MandalaEvent,
+        source_id: str,
+        event_time: datetime,
+    ) -> tuple[bool, MandalaEvent | None]:
+        """Redis-backed add path — safe under multi-worker deployment."""
+        next_expected = await self._r_get_next_expected(source_id)
+        if next_expected is None:
+            # First event for this entity
+            await self._r_set_next_expected(source_id, event_time)
+            self._stats.total_released += 1
+            log.debug("reorder_buffer.first_event", source_id=source_id, event_time=event_time)
+            return True, event
+
+        event_time_str = event_time.isoformat()
+        next_expected_str = next_expected.isoformat()
+
+        if _RUST_EXT_AVAILABLE:
+            should_buffer, next_expected_update = rust_reorder_buffer_should_buffer(
+                event_time_str, next_expected_str, 60.0
+            )
+            if not should_buffer:
+                new_next = datetime.fromisoformat(next_expected_update) if next_expected_update else event_time
+                await self._r_set_next_expected(source_id, new_next)
+                self._stats.total_released += 1
+                return True, event
+        else:
+            if event_time >= next_expected:
+                time_gap = (event_time - next_expected).total_seconds()
+                if time_gap <= 60:
+                    await self._r_set_next_expected(source_id, event_time)
+                    self._stats.total_released += 1
+                    return True, event
+
+        # Buffer the event in Redis ZSET
+        card = await self._r_zcard(source_id)
+        if card >= self._max_events:
+            dropped = await self._r_zpopmin(source_id)
+            self._stats.total_dropped += 1
+            log.warning("reorder_buffer.dropped_oldest", source_id=source_id,
+                        dropped_score=dropped[0] if dropped else None)
+
+        await self._r_zadd_event(source_id, event, event_time)
+        self._stats.total_buffered += 1
+        log.debug("reorder_buffer.buffered", source_id=source_id,
+                  event_time=event_time, buffer_size=card + 1)
+        return False, None
+
     async def _buffer_event(
         self,
         event: MandalaEvent,
         source_id: str,
         event_time: datetime,
     ) -> tuple[bool, MandalaEvent | None]:
-        """Buffer an out-of-order event.
+        """Buffer an out-of-order event (in-memory path).
 
         Returns:
             Tuple of (should_release_immediately, event_to_release)
@@ -253,6 +370,9 @@ class ReorderBuffer:
         Returns:
             List of events to release (in temporal order)
         """
+        if self._redis is not None:
+            return await self._release_ready_redis(source_id)
+
         async with self._lock:
             buffer = self._buffers[source_id]
             if not buffer:
@@ -341,6 +461,59 @@ class ReorderBuffer:
                 self._stats.avg_buffer_time_ms = sum(self._buffer_times) / len(self._buffer_times)
 
             return released
+
+    async def _release_ready_redis(self, source_id: str) -> list[MandalaEvent]:
+        """Redis-backed release_ready."""
+        released: list[MandalaEvent] = []
+        now = datetime.now(UTC)
+        now_str = now.isoformat()
+        next_expected = await self._r_get_next_expected(source_id)
+        if next_expected is None:
+            return []
+        next_expected_str = next_expected.isoformat()
+
+        while True:
+            entry = await self._r_zrange_oldest(source_id)
+            if entry is None:
+                break
+            score, member_str = entry
+            event_time = datetime.fromtimestamp(score, UTC)
+            # Estimate received_at as now (Redis doesn't store it; use max_wait)
+            wait_time = (now - event_time).total_seconds()
+            oldest_str = event_time.isoformat()
+
+            if _RUST_EXT_AVAILABLE:
+                is_ready = rust_reorder_buffer_is_ready(oldest_str, next_expected_str, now_str, self._max_wait)
+            else:
+                is_ready = event_time >= next_expected or wait_time >= self._max_wait
+
+            if not is_ready:
+                break
+
+            # Pop and deserialise
+            popped = await self._r_zpopmin(source_id)
+            if popped is None:
+                break
+            _, member_str = popped
+            try:
+                event = MandalaEvent.model_validate_json(member_str)
+            except Exception:  # noqa: BLE001
+                log.exception("reorder_buffer.redis.deserialize_failed")
+                continue
+
+            next_expected = event_time
+            next_expected_str = event_time.isoformat()
+            await self._r_set_next_expected(source_id, event_time)
+            released.append(event)
+            self._stats.total_released += 1
+            buffer_time_ms = wait_time * 1000
+            self._buffer_times.append(buffer_time_ms)
+
+            log.debug("reorder_buffer.released", source_id=source_id, event_time=event_time)
+
+        if self._buffer_times:
+            self._stats.avg_buffer_time_ms = sum(self._buffer_times) / len(self._buffer_times)
+        return released
 
     async def release_all(self, source_id: str) -> list[MandalaEvent]:
         """Release ALL buffered events for an entity (emergency flush).
@@ -513,8 +686,11 @@ class ReorderBufferManager:
         while self._running:
             try:
                 # Get all entities with buffered events
-                async with self._buffer._lock:
-                    entities = list(self._buffer._buffers.keys())
+                if self._buffer._redis is not None:
+                    entities = await self._buffer._r_get_all_source_ids()
+                else:
+                    async with self._buffer._lock:
+                        entities = list(self._buffer._buffers.keys())
 
                 # Release ready events for each entity
                 for source_id in entities:

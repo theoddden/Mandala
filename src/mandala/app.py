@@ -12,7 +12,7 @@ from typing import Any
 
 import redis.asyncio as redis
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, status
 
 from mandala import __version__
 from mandala.core.adaptive_backpressure import AdaptiveBackpressure
@@ -128,15 +128,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             health_status["checks"]["stream_length"] = info.get("length", 0)
             health_status["checks"]["stream_groups"] = info.get("groups", 0)
         except Exception as exc:  # noqa: BLE001
-            health_status["status"] = "not_ready"
-            health_status["checks"]["stream"] = f"failed: {str(exc)}"
-            return health_status
+            exc_str = str(exc)
+            if "no such key" in exc_str.lower() or "ERR no such key" in exc_str:
+                # Stream doesn't exist yet — normal on first start before any events arrive
+                health_status["checks"]["stream"] = "pending_first_event"
+            else:
+                health_status["status"] = "not_ready"
+                health_status["checks"]["stream"] = f"failed: {exc_str}"
+                return health_status
 
         return health_status
 
     @app.get("/version", tags=["meta"])
     async def version() -> dict[str, str]:
         return {"mandala": __version__, "schema": SCHEMA_VERSION}
+
+    from mandala.core.events.envelope import MandalaEvent
+
+    @app.post("/events", status_code=status.HTTP_202_ACCEPTED, tags=["ingest"])
+    async def ingest_event(request: Request) -> dict[str, str]:
+        """Direct event ingest endpoint.
+
+        Accepts a canonical MandalaEvent JSON body and publishes it to the
+        inbound stream. Useful for custom integrations that don't map to an
+        existing webhook connector.
+        """
+        body = await request.body()
+        try:
+            event = MandalaEvent.model_validate_json(body)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid MandalaEvent: {exc}",
+            ) from exc
+
+        s = request.app.state.settings
+        bus: RedisStreamsBus = request.app.state.bus
+        msg_id = await bus.publish(s.stream_inbound, event)
+        return {"msg_id": msg_id or "", "status": "duplicate" if not msg_id else "accepted"}
 
     # Connectors register their own webhook routers. Each is optional —
     # Mandala must run usefully with only Samsara configured.
