@@ -65,6 +65,7 @@ class _BoundedLRU:
             return self._data.get(key, default)
         return default
 
+
 log = structlog.get_logger(__name__)
 
 # Rust acceleration for Stator's Latch decision logic

@@ -136,6 +136,7 @@ async def run() -> None:
 
         # Initialize Re-ordering Buffer for out-of-order events
         if s.reorder_buffer_enabled:
+
             async def _reorder_release_callback(released_event: MandalaEvent) -> None:
                 await bus.publish(s.stream_inbound, released_event, enable_deduplication=False)
 
@@ -372,9 +373,7 @@ async def run() -> None:
                                 route_start = datetime.now(UTC)
                                 await alert_router.route(ne)
                                 route_duration = (datetime.now(UTC) - route_start).total_seconds()
-                                alert_routing_duration_seconds.labels(channel="external").observe(
-                                    route_duration
-                                )
+                                alert_routing_duration_seconds.labels(channel="external").observe(route_duration)
                                 alerts_routed_total.labels(channel="external", status="success").inc()
                             else:
                                 log.debug(
@@ -396,9 +395,7 @@ async def run() -> None:
                             log.info("zk.proof.auto_enqueued", event_id=ne.id)
                 except Exception as exc:  # noqa: BLE001
                     detector_duration = (datetime.now(UTC) - detector_start).total_seconds()
-                    detector_execution_duration_seconds.labels(detector_name="sandbox").observe(
-                        detector_duration
-                    )
+                    detector_execution_duration_seconds.labels(detector_name="sandbox").observe(detector_duration)
                     log.exception(
                         "mandala.worker.detector_sandbox_failed",
                         event_id=event.id,
@@ -413,9 +410,7 @@ async def run() -> None:
                     dlq_events_total.labels(context="detector").inc()
 
                 event_duration = (datetime.now(UTC) - event_start).total_seconds()
-                events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(
-                    event_duration
-                )
+                events_processing_duration_seconds.labels(event_type=event.type, detector="all").observe(event_duration)
 
                 # Acknowledge event after successful processing
                 await bus.ack(s.stream_inbound, s.consumer_group, msg_id)
