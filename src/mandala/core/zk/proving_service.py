@@ -81,8 +81,9 @@ class AsyncProvingService:
             worker = asyncio.create_task(self._worker(f"worker-{i}"))
             self._workers.append(worker)
 
-        log.info("zk.proving_service.started", workers=self._max_concurrent,
-                 backend="redis" if self._redis else "in_memory")
+        log.info(
+            "zk.proving_service.started", workers=self._max_concurrent, backend="redis" if self._redis else "in_memory"
+        )
 
     async def stop(self) -> None:
         """Graceful shutdown of proof generation workers."""

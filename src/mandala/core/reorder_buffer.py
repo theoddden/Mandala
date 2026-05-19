@@ -173,9 +173,7 @@ class ReorderBuffer:
 
     async def _r_zrange_oldest(self, source_id: str) -> tuple[float, str] | None:
         """Peek at the oldest (lowest-score) member without removing it."""
-        result = await self._redis.zrange(  # type: ignore[union-attr]
-            self._r_buf_key(source_id), 0, 0, withscores=True
-        )
+        result = await self._redis.zrange(self._r_buf_key(source_id), 0, 0, withscores=True)  # type: ignore[union-attr]
         if not result:
             return None
         member, score = result[0]
@@ -311,13 +309,13 @@ class ReorderBuffer:
         if card >= self._max_events:
             dropped = await self._r_zpopmin(source_id)
             self._stats.total_dropped += 1
-            log.warning("reorder_buffer.dropped_oldest", source_id=source_id,
-                        dropped_score=dropped[0] if dropped else None)
+            log.warning(
+                "reorder_buffer.dropped_oldest", source_id=source_id, dropped_score=dropped[0] if dropped else None
+            )
 
         await self._r_zadd_event(source_id, event, event_time)
         self._stats.total_buffered += 1
-        log.debug("reorder_buffer.buffered", source_id=source_id,
-                  event_time=event_time, buffer_size=card + 1)
+        log.debug("reorder_buffer.buffered", source_id=source_id, event_time=event_time, buffer_size=card + 1)
         return False, None
 
     async def _buffer_event(

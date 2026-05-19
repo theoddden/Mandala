@@ -214,13 +214,8 @@ class TestReorderBuffer:
 
     @pytest.fixture
     def redis_mock(self):
-        """Mock Redis client for testing."""
-
-        class MockRedis:
-            def __init__(self):
-                pass  # In-memory buffer doesn't use Redis
-
-        return MockRedis()
+        """Return None to force in-memory buffer path in tests."""
+        return None
 
     @pytest.mark.asyncio
     async def test_first_event_released_immediately(self, redis_mock):
@@ -386,13 +381,8 @@ class TestReorderBufferManager:
 
     @pytest.fixture
     def redis_mock(self):
-        """Mock Redis client for testing."""
-
-        class MockRedis:
-            def __init__(self):
-                pass
-
-        return MockRedis()
+        """Return None to force in-memory buffer path in tests."""
+        return None
 
     @pytest.mark.asyncio
     async def test_start_stop(self, redis_mock):
