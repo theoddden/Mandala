@@ -41,6 +41,182 @@ doesn't know.
 
 Mandala provides a canonical event layer that connects these systems.
 
+## Quickstart (under an hour)
+
+### Prerequisites
+
+- **Docker & Docker Compose** — for running Redis, API, and worker
+- **Samsara account** — fleet telemetry webhooks (free tier works)
+- **Python 3.11+** — if running outside Docker (optional)
+
+### Step 1: Clone and configure
+
+```bash
+git clone https://github.com/theoddden/Mandala
+cd Mandala
+cp .env.example .env
+```
+
+Minimum `.env`:
+
+```bash
+# Required: Samsara webhook
+MANDALA_SAMSARA_WEBHOOK_SECRET=your-secret-here
+
+# Recommended: push enrichment back to Samsara dashboard
+MANDALA_SAMSARA_API_TOKEN=your-samsara-api-token
+MANDALA_SAMSARA_OUTBOUND_ENABLED=1
+
+# Optional: Descartes / CargoWise / Vizion / DAT
+MANDALA_DESCARTES_WEBHOOK_SECRET=
+MANDALA_CARGOWISE_WEBHOOK_SECRET=
+MANDALA_VIZION_API_KEY=
+
+# Optional: trace-native span export
+# MANDALA_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+```
+
+Webhook secrets default to empty strings for fail-closed security.
+Mandala validates HMAC signatures and timestamps to prevent replay
+attacks.
+
+### Step 2: Start Mandala
+
+```bash
+docker compose up -d
+```
+
+Three services come up: `redis`, `api` (port 8000), `worker`. Verify:
+
+```bash
+docker compose ps
+docker compose logs -f api
+docker compose logs -f worker
+```
+
+### Step 3: Configure Samsara webhook
+
+1. Samsara Admin Console → **Settings → Webhooks → Add Webhook**
+2. URL: `http://YOUR_HOST:8000/webhooks/samsara`
+3. Events: `Vehicle Location`, `Geofence Entry`, `Geofence Exit` (minimum)
+4. Secret: same value as `MANDALA_SAMSARA_WEBHOOK_SECRET`
+
+For local testing, use [ngrok](https://ngrok.com/): `ngrok http 8000`.
+
+### Step 4: Verify events in the stream
+
+```bash
+docker compose exec redis redis-cli XREVRANGE mandala:events + - COUNT 10
+```
+
+You'll see CloudEvents-1.0-shaped JSON with OTel span fields:
+
+```json
+{
+  "id": "uuid-v7",
+  "source": "mandala/connector/samsara",
+  "type": "mandala.truck.geofence.entered",
+  "time": "2026-05-09T17:30:00Z",
+  "subject": "urn:mandala:truck:samsara:12345",
+  "trace_id": "9f3b8a...",
+  "span_id": "1c4d...",
+  "attributes": {
+    "logistics.truck.id": "12345",
+    "logistics.location.geofence": "Facility"
+  },
+  "data": { "...": "..." }
+}
+```
+
+### Step 5: Inspect state
+
+State store is Redis-backed with 14-day TTL:
+
+```bash
+docker compose exec redis redis-cli HGETALL "mandala:state:truck:12345"
+docker compose exec redis redis-cli KEYS "mandala:state:truck:*"
+```
+
+### Step 6: (Optional) Enable trace export
+
+```bash
+# Add to .env
+MANDALA_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
+
+# Bring up OTel collector + Jaeger UI
+docker compose --profile all up -d
+
+# Browse shipment traces
+open http://localhost:16686
+```
+
+### Step 7: (Optional) MCP server for LLM agents
+
+```bash
+pip install 'mandala[mcp]'
+mandala mcp
+```
+
+Claude Desktop config (`~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "mandala": {
+      "command": "mandala",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Tools: `get_shipment`, `get_truck`, `check_customs_status`,
+`get_recent_alerts`, `get_fleet_near_border`, `get_trucks_at_poe_without_filing`,
+`get_cold_chain_breaches`, `get_entity_neighbors`, `get_trailer_handoff_chain`,
+`get_shipment_via_trailer`.
+
+**Example: Fleet optimization in 30 seconds**
+
+```
+Export dbt-mandala/mart_fleet_performance.csv, then ask Claude:
+"Analyze this fleet data and identify the 3 highest-impact opportunities to reduce dwell time at Laredo POE."
+```
+
+### Step 8: (Optional) Additional connectors
+
+```bash
+# Vizion rail (free trial)
+MANDALA_VIZION_API_KEY=...
+
+# DAT load-board auto-posting (opt-in)
+MANDALA_LOADBOARD_ENABLED=1
+MANDALA_DAT_CLIENT_ID=...
+MANDALA_DAT_CLIENT_SECRET=...
+
+# CargoWise eAdaptor
+MANDALA_CARGOWISE_WEBHOOK_SECRET=...
+MANDALA_CARGOWISE_EADAPTOR_URL=...
+```
+
+FMCSA SAFER works with no credentials — it's a public API.
+
+### Step 9: Stop
+
+```bash
+docker compose down       # stop services
+docker compose down -v    # stop and clear Redis data
+```
+
+## CLI
+
+```bash
+mandala serve     # FastAPI webhook ingest
+mandala worker    # event loop: project + detect + alert + OTLP-emit
+mandala views     # materialized views runner
+mandala mcp       # MCP stdio server for LLMs
+mandala replay    # replay historical events to fix state after bugs
+```
+
 ### Architectural boundary: POST /events
 
 Mandala's job is to be the **canonical event bus**. Your job is to get
@@ -84,11 +260,6 @@ Typically 20-line scripts. Mandala ships optional utilities
 | `core/rate_limiter.py` | Token bucket rate limiting for API endpoints |
 | `views/{geospatial,bitmap,timeseries,graph}.py` | Materialized views over the stream |
 | `mcp/server.py` | MCP stdio server for LLM agents (8 tools) |
-
-**The pattern:**
-1. **Ingest** — webhook receives vendor payload → normalize to `MandalaEvent` → verify HMAC → check idempotency → publish to Redis Stream.
-2. **Process** — worker reads stream → projects into `StateStore` → runs detectors → publishes alert events back to stream → emits OTel span (if enabled).
-3. **Query** — MCP server reads from `StateStore` (read-only). Views runner maintains GEO / Bitmap / Timeseries / Graph indexes in its own consumer group.
 
 ### Materialized views
 
@@ -299,181 +470,6 @@ MANDALA_CHANGE_TRACKING_ENABLED=1
 
 **All compliance features are disabled by default. Enable only what you need.**
 
-## Quickstart (under an hour)
-
-### Prerequisites
-
-- **Docker & Docker Compose** — for running Redis, API, and worker
-- **Samsara account** — fleet telemetry webhooks (free tier works)
-- **Python 3.11+** — if running outside Docker (optional)
-
-### Step 1: Clone and configure
-
-```bash
-git clone https://github.com/theoddden/Mandala
-cd Mandala
-cp .env.example .env
-```
-
-Minimum `.env`:
-
-```bash
-# Required: Samsara webhook
-MANDALA_SAMSARA_WEBHOOK_SECRET=your-secret-here
-
-# Recommended: push enrichment back to Samsara dashboard
-MANDALA_SAMSARA_API_TOKEN=your-samsara-api-token
-MANDALA_SAMSARA_OUTBOUND_ENABLED=1
-
-# Optional: Descartes / CargoWise / Vizion / DAT
-MANDALA_DESCARTES_WEBHOOK_SECRET=
-MANDALA_CARGOWISE_WEBHOOK_SECRET=
-MANDALA_VIZION_API_KEY=
-
-# Optional: trace-native span export
-# MANDALA_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-```
-
-Webhook secrets default to empty strings for fail-closed security.
-Mandala validates HMAC signatures and timestamps to prevent replay
-attacks.
-
-### Step 2: Start Mandala
-
-```bash
-docker compose up -d
-```
-
-Three services come up: `redis`, `api` (port 8000), `worker`. Verify:
-
-```bash
-docker compose ps
-docker compose logs -f api
-docker compose logs -f worker
-```
-
-### Step 3: Configure Samsara webhook
-
-1. Samsara Admin Console → **Settings → Webhooks → Add Webhook**
-2. URL: `http://YOUR_HOST:8000/webhooks/samsara`
-3. Events: `Vehicle Location`, `Geofence Entry`, `Geofence Exit` (minimum)
-4. Secret: same value as `MANDALA_SAMSARA_WEBHOOK_SECRET`
-
-For local testing, use [ngrok](https://ngrok.com/): `ngrok http 8000`.
-
-### Step 4: Verify events in the stream
-
-```bash
-docker compose exec redis redis-cli XREVRANGE mandala:events + - COUNT 10
-```
-
-You'll see CloudEvents-1.0-shaped JSON with OTel span fields:
-
-```json
-{
-  "id": "uuid-v7",
-  "source": "mandala/connector/samsara",
-  "type": "mandala.truck.geofence.entered",
-  "time": "2026-05-09T17:30:00Z",
-  "subject": "urn:mandala:truck:samsara:12345",
-  "trace_id": "9f3b8a...",
-  "span_id": "1c4d...",
-  "attributes": {
-    "logistics.truck.id": "12345",
-    "logistics.location.geofence": "Facility"
-  },
-  "data": { "...": "..." }
-}
-```
-
-### Step 5: Inspect state
-
-State store is Redis-backed with 14-day TTL:
-
-```bash
-docker compose exec redis redis-cli HGETALL "mandala:state:truck:12345"
-docker compose exec redis redis-cli KEYS "mandala:state:truck:*"
-```
-
-### Step 6: (Optional) Enable trace export
-
-```bash
-# Add to .env
-MANDALA_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-
-# Bring up OTel collector + Jaeger UI
-docker compose --profile all up -d
-
-# Browse shipment traces
-open http://localhost:16686
-```
-
-### Step 7: (Optional) MCP server for LLM agents
-
-```bash
-pip install 'mandala[mcp]'
-mandala mcp
-```
-
-Claude Desktop config (`~/.claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "mandala": {
-      "command": "mandala",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Tools: `get_shipment`, `get_truck`, `check_customs_status`,
-`get_recent_alerts`, `get_fleet_near_border`, `get_trucks_at_poe_without_filing`,
-`get_cold_chain_breaches`, `get_entity_neighbors`, `get_trailer_handoff_chain`,
-`get_shipment_via_trailer`.
-
-**Example: Fleet optimization in 30 seconds**
-
-```
-Export dbt-mandala/mart_fleet_performance.csv, then ask Claude:
-"Analyze this fleet data and identify the 3 highest-impact opportunities to reduce dwell time at Laredo POE."
-```
-
-### Step 8: (Optional) Additional connectors
-
-```bash
-# Vizion rail (free trial)
-MANDALA_VIZION_API_KEY=...
-
-# DAT load-board auto-posting (opt-in)
-MANDALA_LOADBOARD_ENABLED=1
-MANDALA_DAT_CLIENT_ID=...
-MANDALA_DAT_CLIENT_SECRET=...
-
-# CargoWise eAdaptor
-MANDALA_CARGOWISE_WEBHOOK_SECRET=...
-MANDALA_CARGOWISE_EADAPTOR_URL=...
-```
-
-FMCSA SAFER works with no credentials — it's a public API.
-
-### Step 9: Stop
-
-```bash
-docker compose down       # stop services
-docker compose down -v    # stop and clear Redis data
-```
-
-## CLI
-
-```bash
-mandala serve     # FastAPI webhook ingest
-mandala worker    # event loop: project + detect + alert + OTLP-emit
-mandala views     # materialized views runner
-mandala mcp       # MCP stdio server for LLMs
-mandala replay    # replay historical events to fix state after bugs
-```
 
 
 ## Self-implemented data ingestion
@@ -657,38 +653,6 @@ docker compose -f docker-compose.samsara-connector.yml up
 # Descartes connector standalone
 docker compose -f docker-compose.descartes-connector.yml up
 ```
-
-## Hosting profiles
-
-Mandala is designed for minimal resource usage. The default stack is 4 services
-with ~350MB RAM, suitable for a $5/mo VPS. Additional features are opt-in via
-docker compose profiles.
-
-| Profile | Adds | RAM | Use case |
-|---|---|---|---|
-| (default) | redis, nginx, api, worker | ~350MB | Self-hosted, small fleet, <1k events/sec |
-| `--profile ha` | redis-replica + 3x sentinel | +150MB | Self-hosted HA without AWS ElastiCache |
-| `--profile otel` | otel-collector | +50MB | Route spans to your APM (Honeycomb/Datadog/Tempo) |
-| `--profile traces` | otel-collector + jaeger | +250MB | Local trace browsing UI |
-| `--profile all` | ha + traces | ~750MB | Full local dev with HA and trace visualization |
-
-```bash
-docker compose up                        # minimum (nginx + rate limiting)
-docker compose --profile ha up           # +Redis Sentinel for HA
-docker compose --profile otel up         # +OTLP export
-docker compose --profile traces up       # +Jaeger UI
-docker compose --profile all up          # everything
-```
-
-Trace storage (Jaeger / Tempo / Honeycomb / Datadog) is **always
-external** — Mandala produces spans; it doesn't host them. This keeps the
-core footprint flat regardless of trace volume.
-
-Provisions ElastiCache Redis (~$15/mo), two ECS Fargate tasks
-(`serve` + `worker`), ALB with HTTPS, Secrets Manager, IAM least-priv,
-and CloudWatch logs. **~$50-60/mo** for basic us-east-1 deployment.
-
-See [terraform/aws/README.md](terraform/aws/README.md).
 
 ## Troubleshooting
 
