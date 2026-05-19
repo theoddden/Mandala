@@ -319,36 +319,6 @@ pip install target/wheels/mandala_rust_ext-*.whl
 - Zero-copy memory handling for large event batches
 - Memory-safe Rust implementation with no FFI overhead
 
-**ZK-SNARK Features (Optional):**
-
-Mandala includes optional zero-knowledge proof capabilities for cold-chain breach verification:
-
-- **Cold-chain breach circuits** - R1CS constraints using arkworks-rs
-- **Trusted setup ceremony** - MPC protocol for production key generation
-- **Key caching** - In-memory caching for performance
-- **Python integration** - PyO3 bindings with subprocess fallback
-- **MPC ceremony documentation** - Production-ready ceremony participation guide
-- **Security audit notes** - Comprehensive security requirements for production
-
-**ZK Installation:**
-
-```bash
-# Build with ZK support
-cd mandala-rust-ext
-maturin build --release --features zk
-pip install target/wheels/mandala_rust_ext-*.whl
-
-# Generate proving/verification keys (development only)
-python -c "from mandala_rust_ext.zk import zk_generate_keys_breach_scenario; zk_generate_keys_breach_scenario('/opt/mandala/zk/keys/cold_chain_breach.pk', '/opt/mandala/zk/keys/cold_chain_breach.vk')"
-
-# For production: run MPC ceremony
-python -c "from mandala_rust_ext.zk import zk_mpc_simulate_ceremony; zk_mpc_simulate_ceremony(...)"
-```
-
-**ZK Documentation:**
-- `mandala-rust-ext/ZK_MPC_CEREMONY.md` - MPC ceremony participation guide
-- `mandala-rust-ext/ZK_SECURITY_AUDIT.md` - Security audit requirements
-
 ## Compliance
 
 Mandala includes optional compliance features for GDPR/CCPA/SOC2 requirements. All features are lightweight, opt-in, and designed to minimize operational impact.
@@ -402,26 +372,6 @@ MANDALA_AUDIT_ACCESS_LOG_ENABLED=1
 docker compose exec redis redis-cli XREVRANGE mandala:audit:access + - COUNT 10
 ```
 
-### PII Detection
-
-Scans event data for common PII patterns (emails, SSNs, phone numbers, credit cards) and emits alert events when PII is detected. Runs in the detector sandbox with timeout and circuit breaker protection.
-
-**Configuration:**
-
-```bash
-MANDALA_PII_DETECTION_ENABLED=1
-```
-
-**Detected patterns:**
-- Email addresses
-- US SSN format (XXX-XX-XXXX)
-- US phone numbers (XXX-XXX-XXXX)
-- International phone numbers
-- Credit card numbers
-- IP addresses
-
-**Alert event emitted:** `mandala.privacy.pii.detected`
-
 ### Data Residency Checks
 
 Rejects events from disallowed geographic regions based on location attributes in the event. Configured via ISO 3166-1 alpha-2 country codes.
@@ -440,37 +390,6 @@ MANDALA_DATA_RESIDENCY_ALLOWED_REGIONS=US,CA,MX  # North America
 - `data.address.country`
 
 **Response:** Events from disallowed regions receive HTTP 403 Forbidden.
-
-
-### Change Tracking
-
-Tracks state changes by comparing current event data with prior state from Redis. Emits audit events when significant field changes are detected.
-
-**Configuration:**
-
-```bash
-MANDALA_CHANGE_TRACKING_ENABLED=1
-```
-
-**Audit event emitted:** `mandala.audit.state.changed`
-
-**Tracked changes:**
-- All fields by default
-- Optional field whitelist for targeted tracking
-
-### Compliance Feature Summary
-
-| Feature | Purpose | Impact | Env Var |
-|---|---|---|---|
-| Immutable Audit Logging | Permanent event storage for compliance | Iceberg dual-write | `MANDALA_AUDIT_LOG_ENABLED` |
-| Access Logging | Audit trail of all event ingest | Redis stream write | `MANDALA_AUDIT_ACCESS_LOG_ENABLED` |
-| PII Detection | Scan events for PII patterns | Detector sandbox | `MANDALA_PII_DETECTION_ENABLED` |
-| Data Residency | Reject events from disallowed regions | Middleware check | `MANDALA_DATA_RESIDENCY_ENABLED` |
-| Change Tracking | Track state changes for audit | Detector sandbox | `MANDALA_CHANGE_TRACKING_ENABLED` |
-
-**All compliance features are disabled by default. Enable only what you need.**
-
-
 
 ## Self-implemented data ingestion
 
