@@ -55,13 +55,7 @@ from mandala.projection import project
 from mandala.rail import DETECTORS as RAIL_DETECTORS
 from mandala.settings import get_settings
 
-_BASE_DETECTORS = (
-    ALERT_DETECTORS
-    + LOADBOARD_DETECTORS
-    + FMCSA_DETECTORS
-    + RAIL_DETECTORS
-    + WAREHOUSE_DETECTORS
-)
+_BASE_DETECTORS = ALERT_DETECTORS + LOADBOARD_DETECTORS + FMCSA_DETECTORS + RAIL_DETECTORS + WAREHOUSE_DETECTORS
 
 
 def _build_detectors(s) -> list:
@@ -76,6 +70,7 @@ def _build_detectors(s) -> list:
     if s.change_tracking_enabled:
         compliance.append(ChangeTracker(enabled=True))
     return list(_BASE_DETECTORS) + compliance
+
 
 log = structlog.get_logger(__name__)
 
