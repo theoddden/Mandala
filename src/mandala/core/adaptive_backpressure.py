@@ -7,7 +7,7 @@ and CPU load. Rejects ingestion when system is degraded.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -97,6 +97,9 @@ class AdaptiveBackpressure:
 
     def _check_memory_usage(self) -> float:
         """Check system memory usage."""
+        if not PSUTIL_AVAILABLE:
+            log.warning("memory.check_skipped", reason="psutil not installed")
+            return 0.0
         try:
             return psutil.virtual_memory().percent
         except Exception:
@@ -105,6 +108,9 @@ class AdaptiveBackpressure:
 
     async def _check_cpu_usage(self) -> float:
         """Check system CPU usage (runs in thread to avoid blocking event loop)."""
+        if not PSUTIL_AVAILABLE:
+            log.warning("cpu.check_skipped", reason="psutil not installed")
+            return 0.0
         try:
             return await asyncio.to_thread(psutil.cpu_percent, interval=0.1)
         except Exception:

@@ -228,8 +228,8 @@ class ReorderBuffer:
             if _RUST_EXT_AVAILABLE:
                 should_buffer, next_expected_update = rust_reorder_buffer_should_buffer(
                     event_time_str,
-                    next_expected_str,
                     60.0,  # gap_threshold_seconds
+                    next_expected_str,
                 )
                 if not should_buffer:
                     # Release immediately
@@ -289,7 +289,7 @@ class ReorderBuffer:
 
         if _RUST_EXT_AVAILABLE:
             should_buffer, next_expected_update = rust_reorder_buffer_should_buffer(
-                event_time_str, next_expected_str, 60.0
+                event_time_str, 60.0, next_expected_str
             )
             if not should_buffer:
                 new_next = datetime.fromisoformat(next_expected_update) if next_expected_update else event_time

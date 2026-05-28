@@ -134,9 +134,13 @@ class AlertRouter:
             elif route.destination == "email":
                 # Email routing is handled via SMTP, not HTTP
                 pass
-        except Exception:  # noqa: BLE001
-            # Handle errors gracefully - test expects this to not raise
-            pass
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "alert.routing.execute_route_failed",
+                route_id=route.id,
+                destination=route.destination,
+                error=str(exc),
+            )
 
     async def remove_route(self, route_id: str) -> None:
         """Remove a route by ID."""

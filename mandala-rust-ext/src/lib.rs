@@ -204,7 +204,7 @@ fn stator_latch_check(
     }
 
     let last_committed = last_committed.unwrap();
-    let time_diff = (event_time - last_committed).num_seconds() as f64;
+    let time_diff = (event_time - last_committed).num_milliseconds() as f64 / 1000.0;
 
     // Check for duplicate (within tolerance)
     if time_diff.abs() <= tolerance_seconds {
@@ -532,7 +532,11 @@ fn parse_timestamp_to_datetime(timestamp_str: &str) -> PyResult<DateTime<Utc>> {
     // Try epoch seconds (and milliseconds)
     if let Ok(epoch) = timestamp_str.parse::<f64>() {
         let epoch = if epoch > 1e12 { epoch / 1000.0 } else { epoch };
-        return Ok(Utc.timestamp_opt(epoch as i64, 0).unwrap());
+        return Utc.timestamp_opt(epoch as i64, 0)
+            .single()
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                format!("Timestamp out of range: {}", timestamp_str)
+            ));
     }
 
     // Try ISO-8601
@@ -786,12 +790,14 @@ fn decode_graph_result(raw: &PyAny) -> PyResult<Vec<PyObject>> {
                 if i < row_list.len() {
                     if let Ok(val) = row_list.get_item(i) {
                         let val_any: &PyAny = val;
-                        // Decode bytes to string if needed
-                        let decoded = if let Ok(bytes_val) = val_any.downcast::<PyBytes>() {
+                        // Decode bytes to string; preserve native type for int/float/bool/None
+                        let decoded: PyObject = if let Ok(bytes_val) = val_any.downcast::<PyBytes>() {
                             let bytes = bytes_val.as_bytes();
-                            String::from_utf8_lossy(bytes).to_string()
+                            String::from_utf8_lossy(bytes).to_string().into_py(py)
+                        } else if val_any.is_instance_of::<pyo3::types::PyString>() {
+                            val_any.extract::<String>()?.into_py(py)
                         } else {
-                            val_any.extract()?
+                            val_any.into_py(py)
                         };
                         row_dict.set_item(col, decoded)?;
                     }

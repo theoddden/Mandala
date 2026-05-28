@@ -55,25 +55,27 @@ from mandala.projection import project
 from mandala.rail import DETECTORS as RAIL_DETECTORS
 from mandala.settings import get_settings
 
-# Compliance detectors (optional, enabled via settings)
-COMPLIANCE_DETECTORS = []
-
-s = get_settings()
-if s.pii_detection_enabled:
-    pii_detector = PIIDetector(enabled=True)
-    COMPLIANCE_DETECTORS.append(pii_detector)
-if s.change_tracking_enabled:
-    change_tracker = ChangeTracker(enabled=True)
-    COMPLIANCE_DETECTORS.append(change_tracker)
-
-DETECTORS = (
+_BASE_DETECTORS = (
     ALERT_DETECTORS
     + LOADBOARD_DETECTORS
     + FMCSA_DETECTORS
     + RAIL_DETECTORS
     + WAREHOUSE_DETECTORS
-    + COMPLIANCE_DETECTORS
 )
+
+
+def _build_detectors(s) -> list:
+    """Build full detector list including compliance detectors from settings.
+
+    Called once inside run() so settings are not evaluated at import time.
+    This preserves test isolation and defers settings I/O to startup.
+    """
+    compliance = []
+    if s.pii_detection_enabled:
+        compliance.append(PIIDetector(enabled=True))
+    if s.change_tracking_enabled:
+        compliance.append(ChangeTracker(enabled=True))
+    return list(_BASE_DETECTORS) + compliance
 
 log = structlog.get_logger(__name__)
 
@@ -166,7 +168,7 @@ async def run() -> None:
         )
 
     # Detector sandbox for timeout and circuit breaker protection
-    detector_sandbox = DetectorSandboxPool(DETECTORS)
+    detector_sandbox = DetectorSandboxPool(_build_detectors(s))
 
     # Adaptive backpressure for resource-aware processing
     adaptive_backpressure = AdaptiveBackpressure(r)
@@ -506,7 +508,7 @@ async def _push_to_samsara(client: SamsaraOutboundClient, alert_event: MandalaEv
     - Border crossing without customs filing
     - Cold chain breaches
     """
-    data = alert_event.data
+    data = alert_event.data if isinstance(alert_event.data, dict) else {}
     truck_id = data.get("truck_id")
     alert_type = data.get("alert_type")
     severity = data.get("severity", "WARNING")

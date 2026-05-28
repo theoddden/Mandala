@@ -60,10 +60,7 @@ class _BoundedLRU:
 
     def pop(self, key: str, default: datetime | None = None) -> datetime | None:
         """Remove and return value for key, or default if not found."""
-        if key in self._data:
-            self._data.pop(key)
-            return self._data.get(key, default)
-        return default
+        return self._data.pop(key, default)
 
 
 log = structlog.get_logger(__name__)
