@@ -7,6 +7,7 @@ window we drop it instead of re-emitting the normalized event.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -144,10 +145,9 @@ class IdempotencyManager:
         if not self._enabled:
             return False
 
-        already_processed = await self.is_processed(key)
-        if not already_processed:
-            await self.mark_processed(key)
-        return already_processed
+        # claim() uses atomic SET NX EX — safe under concurrent access
+        claimed = await self._store.claim(key, ttl_seconds=self._ttl)
+        return not claimed  # True = already existed (processed), False = newly marked
 
     async def remove_processed(self, key: str) -> None:
         """Remove a key from the processed set.
@@ -246,8 +246,10 @@ class IdempotencyManager:
             return
 
         redis_keys = [f"mandala:idemp:{k}" for k in keys]
-        values = ["1"] * len(redis_keys)
-        await self._redis.mset(dict(zip(redis_keys, values)))  # type: ignore[attr-defined]
+        await asyncio.gather(*[
+            self._redis.set(k, "1", ex=self._ttl, nx=True)  # type: ignore[attr-defined]
+            for k in redis_keys
+        ])
 
     async def cleanup_expired(self) -> int:
         """Clean up expired keys (no-op for Redis with TTL).

@@ -22,11 +22,12 @@ COPY mandala-rust-ext/ ./mandala-rust-ext/
 # Install maturin for building Rust extension
 RUN pip install --upgrade pip maturin
 
-# Build Rust extension with ZK features (optional - will fall back to pure Python if build fails)
-RUN cd mandala-rust-ext && maturin build --release --features zk || echo "ZK build failed, will use pure Python fallback"
+# Build Rust extension with ZK features (optional - falls back to pure Python if build fails)
+RUN cd mandala-rust-ext && maturin build --release --features zk 2>&1 | tail -5 || true
 
-# Install mandala with Rust wheels if available
-RUN pip install mandala-rust-ext/target/wheels/mandala_rust_ext-*.whl || echo "Rust extension not available"
+# Install Rust wheel only if one was actually produced; true no-op otherwise
+RUN find mandala-rust-ext/target/wheels/ -name "mandala_rust_ext-*.whl" | head -1 | xargs pip install 2>/dev/null || echo "Rust extension not available, using pure Python fallback"
+
 RUN pip install .
 
 EXPOSE 8000

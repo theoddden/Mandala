@@ -14,6 +14,7 @@ import structlog
 from mandala.core.circuit_breaker import CircuitBreaker
 from mandala.core.events.envelope import MandalaEvent
 from mandala.core.state import StateStore
+from mandala.settings import get_settings
 
 log = structlog.get_logger(__name__)
 
@@ -83,15 +84,15 @@ class DetectorSandboxPool:
         self._detectors = detectors
 
         # Create sandboxes for each detector
+        s = get_settings()
         for detector in detectors:
-            detector_name = detector.__name__
+            detector_name = getattr(detector, "__name__", type(detector).__name__)
 
-            # Configure timeouts based on detector type
-            # ML inference and external API calls get longer timeouts
+            # ML inference and external API calls get double the configured timeout
             if any(keyword in detector_name.lower() for keyword in ["ml", "model", "predict", "fmcsa", "vizion"]):
-                timeout = 60.0
+                timeout = min(s.detector_timeout_seconds * 2, 300.0)
             else:
-                timeout = 10.0
+                timeout = s.detector_timeout_seconds
 
             self._sandboxes[detector_name] = DetectorSandbox(
                 detector_func=detector,

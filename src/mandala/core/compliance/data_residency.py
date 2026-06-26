@@ -11,6 +11,8 @@ from typing import Any
 
 import structlog
 from fastapi import Request, Response, status
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 log = structlog.get_logger(__name__)
 
@@ -24,23 +26,25 @@ except ImportError:
     _RUST_EXT_AVAILABLE = False
 
 
-class DataResidencyMiddleware:
+class DataResidencyMiddleware(BaseHTTPMiddleware):
     """Middleware for data residency compliance.
 
     Checks event location against allowed regions and rejects
     events from disallowed countries.
     """
 
-    def __init__(self, allowed_regions: list[str] | None = None) -> None:
+    def __init__(self, app: ASGIApp, allowed_regions: list[str] | None = None) -> None:
         """Initialize data residency middleware.
 
         Args:
+            app: The ASGI application to wrap.
             allowed_regions: List of ISO 3166-1 alpha-2 country codes (e.g., ["US", "CA", "MX"])
         """
+        super().__init__(app)
         self._allowed_regions = set(allowed_regions or [])
         self._enabled = len(self._allowed_regions) > 0
 
-    async def __call__(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
         """Process request and check data residency.
 
         Args:

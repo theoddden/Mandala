@@ -114,6 +114,13 @@ class PIIDetector:
 
         return None
 
+    async def __call__(self, event: MandalaEvent, state: object, redis: object) -> list[MandalaEvent]:
+        """Detector protocol: scan event for PII and emit an alert event if found."""
+        pii_found = await self.detect(event)
+        if pii_found:
+            return [self.create_pii_alert_event(event, pii_found)]
+        return []
+
     def create_pii_alert_event(self, event: MandalaEvent, pii_detected: dict[str, Any]) -> MandalaEvent:
         """Create an alert event for PII detection.
 

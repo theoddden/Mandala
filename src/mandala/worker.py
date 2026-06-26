@@ -425,6 +425,10 @@ async def run() -> None:
     _last_reclaim_at: float = 0.0
     _PEL_RECLAIM_INTERVAL_SEC: float = 60.0
 
+    # DLQ retry: track last retry processing time
+    _last_dlq_retry_at: float = 0.0
+    _DLQ_RETRY_INTERVAL_SEC: float = 30.0
+
     try:
         while not _shutdown_requested:
             # --- Adaptive batch size (Fix 8) ---
@@ -463,6 +467,16 @@ async def run() -> None:
                         )
                 except Exception:  # noqa: BLE001
                     log.exception("worker.reclaim_error")
+
+            # --- Periodic DLQ retry processing ---
+            if _now - _last_dlq_retry_at >= _DLQ_RETRY_INTERVAL_SEC:
+                _last_dlq_retry_at = _now
+                try:
+                    retried = await dlq.process_retries()
+                    if retried:
+                        log.info("worker.dlq_retries_processed", count=retried)
+                except Exception:  # noqa: BLE001
+                    log.exception("worker.dlq_retry_error")
 
             if not messages:
                 continue

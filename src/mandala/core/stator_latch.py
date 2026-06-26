@@ -62,6 +62,10 @@ class _BoundedLRU:
         """Remove and return value for key, or default if not found."""
         return self._data.pop(key, default)
 
+    def clear(self) -> None:
+        """Remove all entries from the cache."""
+        self._data.clear()
+
 
 log = structlog.get_logger(__name__)
 

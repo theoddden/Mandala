@@ -125,8 +125,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Try to read stream info
             info = await app.state.redis.xinfo_stream(s.stream_inbound)  # type: ignore[attr-defined]
             health_status["checks"]["stream"] = "ok"
-            health_status["checks"]["stream_length"] = info.get("length", 0)
-            health_status["checks"]["stream_groups"] = info.get("groups", 0)
+            health_status["checks"]["stream_length"] = info.get(b"length", 0)
+            health_status["checks"]["stream_groups"] = info.get(b"groups", 0)
         except Exception as exc:  # noqa: BLE001
             exc_str = str(exc)
             if "no such key" in exc_str.lower() or "ERR no such key" in exc_str:

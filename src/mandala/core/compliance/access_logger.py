@@ -74,8 +74,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             event_type = body.get("type")
             subject = body.get("subject")
         except Exception:
-            # If we can't parse JSON, still log the attempt
-            pass
+            log.debug("access_logger.non_json_body", path=path)
 
         # Log to Redis stream (fire-and-forget)
         log_entry = {

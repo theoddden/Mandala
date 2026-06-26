@@ -95,25 +95,24 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app) -> None:
         super().__init__(app)
-        self._limiter: RateLimiter | None = None
+        s = get_settings()
+        self._limiter: RateLimiter | None = (
+            RateLimiter(
+                rate_per_minute=s.rate_limit_requests_per_minute,
+                burst_size=s.rate_limit_burst_size,
+            )
+            if s.rate_limit_enabled
+            else None
+        )
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Check rate limit before processing request."""
-        s = get_settings()
-
-        if not s.rate_limit_enabled:
+        if self._limiter is None:
             return await call_next(request)
 
         # Only rate limit webhook endpoints
         if not request.url.path.startswith("/webhooks/"):
             return await call_next(request)
-
-        # Initialize limiter if not already done
-        if self._limiter is None:
-            self._limiter = RateLimiter(
-                rate_per_minute=s.rate_limit_requests_per_minute,
-                burst_size=s.rate_limit_burst_size,
-            )
 
         # Get client IP
         ip = self._get_client_ip(request)
@@ -132,7 +131,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             from fastapi import status
 
             return Response(
-                content=f"Rate limit exceeded for IP {ip}. Maximum {s.rate_limit_requests_per_minute} requests per minute allowed.",
+                content=f"Rate limit exceeded for IP {ip}. Maximum {get_settings().rate_limit_requests_per_minute} requests per minute allowed.",
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 

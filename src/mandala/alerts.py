@@ -112,7 +112,7 @@ async def cold_chain(event: MandalaEvent, state: StateStore, redis: object) -> l
     out_of_spec = (declared_max is not None and temp is not None and temp > float(declared_max)) or (
         declared_min is not None and temp is not None and temp < float(declared_min)
     )
-    if not (declared_min is None and declared_max is None) and not out_of_spec:
+    if (declared_min is None and declared_max is None) or not out_of_spec:
         return []
     if not await _debounce(redis, f"coldchain:{truck_urn}", ttl=600):
         return []
@@ -168,8 +168,11 @@ async def dead_zone(event: MandalaEvent, state: StateStore, redis: object) -> li
 
     data = event.data if isinstance(event.data, dict) else {}
     position = data.get("position") or {}
+    lat, lon = position.get("lat"), position.get("lon")
+    if lat is None or lon is None:
+        return []
 
-    geo_key = f"{position.get('lat'):.4f},{position.get('lon'):.4f}"
+    geo_key = f"{lat:.4f},{lon:.4f}"
     if not await _debounce(redis, f"deadzone:{truck_urn}:{geo_key}", ttl=3600):
         return []
 

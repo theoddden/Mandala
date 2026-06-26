@@ -98,6 +98,18 @@ class ChangeTracker:
                 fields.extend(self._get_all_fields(value, path))
         return fields
 
+    async def __call__(self, event: MandalaEvent, state: object, redis: object) -> list[MandalaEvent]:
+        """Detector protocol: compare event data against prior state, emit audit event if changed."""
+        if not self._enabled or not event.subject:
+            return []
+        parts = event.subject.split(":")
+        kind = parts[2] if len(parts) >= 4 else "entity"
+        prior = await state.get(kind, event.subject)  # type: ignore[attr-defined]
+        changes = await self.track(event, prior)
+        if changes:
+            return [self.create_change_alert_event(event, changes)]
+        return []
+
     def create_change_alert_event(self, event: MandalaEvent, changes: dict[str, Any]) -> MandalaEvent:
         """Create an audit event for state changes.
 
