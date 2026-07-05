@@ -85,7 +85,7 @@ class DetectorSandboxPool:
 
         # Create sandboxes for each detector
         s = get_settings()
-        for idx, detector in enumerate(detectors):
+        for _idx, detector in enumerate(detectors):
             detector_name = getattr(detector, "__name__", type(detector).__name__)
 
             # Use a unique key to prevent name collisions between instances of the same class

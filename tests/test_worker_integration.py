@@ -80,8 +80,8 @@ async def test_worker_main_loop_integration():
         assert len(messages) > 0, "No messages consumed from stream"
         
         # Acknowledge messages
-        for stream_name, msgs in messages:
-            for msg_id, fields in messages:
+        for _stream_name, _msgs in messages:
+            for msg_id, _fields in messages:
                 await r.xack(test_stream, "test-group", msg_id)
         
         # Test PEL reclaim (pending entry list)
