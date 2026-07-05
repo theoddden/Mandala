@@ -246,10 +246,9 @@ class IdempotencyManager:
             return
 
         redis_keys = [f"mandala:idemp:{k}" for k in keys]
-        await asyncio.gather(*[
-            self._redis.set(k, "1", ex=self._ttl, nx=True)  # type: ignore[attr-defined]
-            for k in redis_keys
-        ])
+        await asyncio.gather(
+            *[self._redis.set(k, "1", ex=self._ttl, nx=True) for k in redis_keys]  # type: ignore[attr-defined]
+        )
 
     async def cleanup_expired(self) -> int:
         """Clean up expired keys (no-op for Redis with TTL).
