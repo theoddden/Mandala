@@ -1,11 +1,12 @@
-FROM python:3.11-slim AS base
+# Build stage
+FROM python:3.11-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /app
+WORKDIR /build
 
 # Install build dependencies including Rust for optional ZK features
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,7 +29,31 @@ RUN cd mandala-rust-ext && maturin build --release --features zk 2>&1 | tail -5 
 # Install Rust wheel only if one was actually produced; true no-op otherwise
 RUN find mandala-rust-ext/target/wheels/ -name "mandala_rust_ext-*.whl" | head -1 | xargs pip install 2>/dev/null || echo "Rust extension not available, using pure Python fallback"
 
-RUN pip install .
+# Install Python package
+RUN pip install . --target /install
+
+# Runtime stage
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Copy installed dependencies from builder
+COPY --from=builder /install /usr/local
+
+# Copy application code
+COPY src/ ./src/
+COPY pyproject.toml README.md ./
+
+# Create non-root user
+RUN groupadd -r mandala && useradd -r -g mandala mandala \
+    && chown -R mandala:mandala /app
+
+USER mandala
 
 EXPOSE 8000
 

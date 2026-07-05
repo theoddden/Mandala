@@ -370,7 +370,7 @@ async def run() -> None:
 
                         # Push alerts back to Samsara if enabled
                         if samsara_outbound and ne.type.startswith("mandala.alert"):
-                            await _push_to_samsara(samsara_outbound, ne)
+                            await _push_to_samsara(samsara_outbound, ne, dlq)
 
                         # Route alerts to external channels if enabled
                         if s.alert_routing_enabled and ne.type.startswith("mandala.alert"):
@@ -510,7 +510,7 @@ async def run() -> None:
         log.info("mandala.worker.shutdown_complete")
 
 
-async def _push_to_samsara(client: SamsaraOutboundClient, alert_event: MandalaEvent) -> None:
+async def _push_to_samsara(client: SamsaraOutboundClient, alert_event: MandalaEvent, dlq: object) -> None:
     """Push Mandala alerts back to Samsara.
 
     Sends driver messages and updates vehicle tags for:
@@ -527,6 +527,13 @@ async def _push_to_samsara(client: SamsaraOutboundClient, alert_event: MandalaEv
             "samsara.push.missing_fields",
             truck_id=truck_id,
             alert_type=alert_type,
+        )
+        # Send to DLQ instead of silently dropping
+        await dlq.publish(
+            alert_event,
+            f"Missing required fields: truck_id={truck_id}, alert_type={alert_type}",
+            "samsara_outbound",
+            retryable=False,
         )
         return
 
@@ -556,6 +563,13 @@ async def _push_to_samsara(client: SamsaraOutboundClient, alert_event: MandalaEv
             truck_id=truck_id,
             alert_type=alert_type,
             error=str(exc),
+        )
+        # Send to DLQ on API failure
+        await dlq.publish(
+            alert_event,
+            str(exc),
+            "samsara_outbound",
+            retryable=True,
         )
 
 

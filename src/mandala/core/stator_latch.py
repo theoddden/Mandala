@@ -113,17 +113,19 @@ class StatorLatch:
     LATCH_KEY_PREFIX = "mandala:latch"
     DEFAULT_TTL_SECONDS = 14 * 24 * 60 * 60  # 14 days
 
-    def __init__(self, redis: object, ttl_seconds: int | None = None) -> None:
+    def __init__(self, redis: object, ttl_seconds: int | None = None, use_local_cache: bool = False) -> None:
         """Initialize the Stator's Latch.
 
         Args:
             redis: Redis client instance
             ttl_seconds: TTL for latch entries (default: 14 days)
+            use_local_cache: Enable in-process LRU cache (disabled by default for multi-worker safety)
         """
         self._redis = redis
         self._ttl = ttl_seconds or self.DEFAULT_TTL_SECONDS
-        self._local_cache: _BoundedLRU = _BoundedLRU()
-        self._cache_lock = asyncio.Lock()
+        self._use_local_cache = use_local_cache
+        self._local_cache: _BoundedLRU | None = _BoundedLRU() if use_local_cache else None
+        self._cache_lock = asyncio.Lock() if use_local_cache else None
 
         # Statistics
         self._stats = defaultdict(int)
@@ -145,11 +147,12 @@ class StatorLatch:
         Returns:
             Last committed datetime or None if no prior events
         """
-        # Check local cache first (performance optimization)
-        async with self._cache_lock:
-            cached = self._local_cache.get(source_id)
-            if cached is not None:
-                return cached
+        # Check local cache first (performance optimization) - only if enabled
+        if self._use_local_cache and self._local_cache and self._cache_lock:
+            async with self._cache_lock:
+                cached = self._local_cache.get(source_id)
+                if cached is not None:
+                    return cached
 
         # Check Redis
         raw = await self._redis.get(self._latch_key(source_id))  # type: ignore[attr-defined]
@@ -161,9 +164,10 @@ class StatorLatch:
 
         try:
             committed_time = datetime.fromisoformat(raw)
-            # Update local cache (bounded LRU)
-            async with self._cache_lock:
-                self._local_cache.set(source_id, committed_time)
+            # Update local cache (bounded LRU) - only if enabled
+            if self._use_local_cache and self._local_cache and self._cache_lock:
+                async with self._cache_lock:
+                    self._local_cache.set(source_id, committed_time)
             return committed_time
         except (ValueError, TypeError):
             log.warning("stator_latch.invalid_timestamp", source_id=source_id, raw=raw)
@@ -176,9 +180,10 @@ class StatorLatch:
             source_id: Entity identifier
             event_time: Event timestamp to commit
         """
-        # Update local cache (bounded LRU)
-        async with self._cache_lock:
-            self._local_cache.set(source_id, event_time)
+        # Update local cache (bounded LRU) - only if enabled
+        if self._use_local_cache and self._local_cache and self._cache_lock:
+            async with self._cache_lock:
+                self._local_cache.set(source_id, event_time)
 
         # Update Redis with TTL
         await self._redis.set(
@@ -345,8 +350,9 @@ class StatorLatch:
         Args:
             source_id: Entity identifier to reset
         """
-        async with self._cache_lock:
-            self._local_cache.pop(source_id, None)
+        if self._use_local_cache and self._local_cache and self._cache_lock:
+            async with self._cache_lock:
+                self._local_cache.pop(source_id, None)
 
         await self._redis.delete(self._latch_key(source_id))  # type: ignore[attr-defined]
         self._stats["resets"] += 1

@@ -182,7 +182,7 @@ jobs:
 
     - name: Check coverage threshold
       run: |
-        coverage report --fail-under=40 || echo "WARNING: Coverage below 40% threshold"
+        coverage report --fail-under=40
 
   lint:
     runs-on: ubuntu-latest

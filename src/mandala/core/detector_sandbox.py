@@ -85,8 +85,12 @@ class DetectorSandboxPool:
 
         # Create sandboxes for each detector
         s = get_settings()
-        for detector in detectors:
+        for idx, detector in enumerate(detectors):
             detector_name = getattr(detector, "__name__", type(detector).__name__)
+
+            # Use a unique key to prevent name collisions between instances of the same class
+            # Format: detector_name_<id> or detector_name_<index> if no __name__
+            unique_key = f"{detector_name}_{id(detector)}"
 
             # ML inference and external API calls get double the configured timeout
             if any(keyword in detector_name.lower() for keyword in ["ml", "model", "predict", "fmcsa", "vizion"]):
@@ -94,13 +98,13 @@ class DetectorSandboxPool:
             else:
                 timeout = s.detector_timeout_seconds
 
-            self._sandboxes[detector_name] = DetectorSandbox(
+            self._sandboxes[unique_key] = DetectorSandbox(
                 detector_func=detector,
                 detector_name=detector_name,
                 timeout_seconds=timeout,
                 circuit_breaker_threshold=5,
                 circuit_breaker_timeout=60.0,
-                circuit_breaker_name=detector_name,
+                circuit_breaker_name=unique_key,
             )
 
     async def execute_all(self, event: MandalaEvent, state: StateStore, redis: object) -> list[MandalaEvent]:
